@@ -1,0 +1,61 @@
+version: '3'
+
+vars:
+  COMPOSE: "docker compose"
+
+
+tasks:
+  build:
+    desc: Build images
+    cmds:
+      - "{{.COMPOSE}} build"
+
+  up:
+    desc: Start services
+    cmds:
+      - "{{.COMPOSE}} up -d"
+
+  up-gpu:
+    desc: Start services with GPU enabled (uses compose.gpu.yaml)
+    cmds:
+      - "{{.COMPOSE}} -f compose.yaml -f compose.gpu.yaml up -d"
+
+  down:
+    desc: Stop services
+    cmds:
+      - "{{.COMPOSE}} down"
+
+  logs:
+    desc: Follow service logs
+    cmds:
+      - "{{.COMPOSE}} logs -f"
+
+  shell:
+    desc: Open shell in dev container
+    cmds:
+      - "{{.COMPOSE}} exec dev bash"
+
+  check:
+    desc: Validate PyTorch, CUDA, and TrackEval
+    cmds:
+      - "{{.COMPOSE}} exec -T dev python src/check_env.py"
+
+  jupyter:
+    desc: Start JupyterLab inside dev container
+    cmds:
+      - "{{.COMPOSE}} exec -d dev bash -lc 'mkdir -p /workspace/outputs && jupyter lab --ip 0.0.0.0 --port ${JUPYTER_PORT} --no-browser --ServerApp.token=\"\" --ServerApp.password=\"\" --allow-root --log-level=ERROR > /workspace/outputs/jupyter.log 2>&1'"
+
+  wandb-smoke:
+    desc: Minimal W&B offline run
+    cmds:
+      - "{{.COMPOSE}} exec -T dev python src/wandb_smoke.py"
+
+  mlflow-smoke:
+    desc: Minimal MLflow run
+    cmds:
+      - "{{.COMPOSE}} exec -T dev python src/mlflow_smoke.py"
+
+  trackeval-smoke:
+    desc: Import TrackEval
+    cmds:
+      - "{{.COMPOSE}} exec -T dev python src/trackeval_smoke.py"

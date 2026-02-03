@@ -1,0 +1,5 @@
+[W 2026-02-03 20:22:49.805 ServerApp] ServerApp.token config is deprecated in 2.0. Use IdentityProvider.token.
+[I 2026-02-03 20:22:49.940 LabApp] JupyterLab extension loaded from /opt/conda/lib/python3.10/site-packages/jupyterlab
+[I 2026-02-03 20:22:49.940 LabApp] JupyterLab application directory is /opt/conda/share/jupyter/lab
+[I 2026-02-03 20:22:49.940 LabApp] Extension Manager is 'pypi'.
+[W 2026-02-03 20:22:55.995 LabApp] Could not determine jupyterlab build status without nodejs
