@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Comparación Base vs R2 vs R3 en frames NO vistos y llenos (videoTM_02)."""
+import cv2, numpy as np
+from ultralytics import YOLO
+
+VIDEO = "/videos/videoTM_02.mkv"   # nunca usado en entrenamiento
+CONF = 0.25
+MODELS = [
+    ("BASE (CrowdHuman)", "/workspace/models/yolov5mu-head-base.pt", (180,180,180)),
+    ("R2",                "/workspace/outputs/head_detector/yolo-bus-head-r2/weights/best.pt", (0,200,255)),
+    ("R3",                "/workspace/outputs/head_detector/yolo-bus-head-r3/weights/best.pt", (0,255,0)),
+]
+models = [(n, YOLO(p), c) for n,p,c in MODELS]
+
+# 1) buscar frames brillantes y MUY concurridos (según R3)
+r3 = models[2][1]
+cap = cv2.VideoCapture(VIDEO); idx=0; cands=[]
+while True:
+    ret,img=cap.read()
+    if not ret: break
+    if idx%40==0 and img.mean()>=70:
+        n=len(r3.predict(img,conf=CONF,verbose=False)[0].boxes)
+        cands.append((n,idx,img.copy()))
+    idx+=1
+cap.release()
+cands.sort(reverse=True)
+# tomar 3 frames muy concurridos pero separados en el tiempo
+picks=[]; used=[]
+for n,i,img in cands:
+    if all(abs(i-u)>800 for u in used):
+        picks.append((i,img)); used.append(i)
+    if len(picks)==3: break
+print("frames elegidos:", [i for i,_ in picks])
+
+# 2) por cada frame, panel triple Base|R2|R3
+def draw(img, model, color, name):
+    im=img.copy()
+    r=model.predict(im,conf=CONF,verbose=False)[0]
+    boxes=r.boxes.xyxy.cpu().numpy() if r.boxes is not None else []
+    for b in boxes:
+        x1,y1,x2,y2=map(int,b); cv2.rectangle(im,(x1,y1),(x2,y2),color,2)
+    cv2.rectangle(im,(0,0),(im.shape[1],26),(0,0,0),-1)
+    cv2.putText(im,f"{name}: {len(boxes)} cabezas",(6,18),cv2.FONT_HERSHEY_SIMPLEX,0.6,color,2)
+    return im
+
+for k,(i,img) in enumerate(picks):
+    panels=[draw(img,m,c,n) for n,m,c in models]
+    out=np.hstack(panels)
+    p=f"/workspace/data/_harvest/cmp_{k+1}_f{i:06d}.jpg"
+    cv2.imwrite(p,out); print("guardado",p)

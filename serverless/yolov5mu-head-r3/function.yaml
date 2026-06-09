@@ -1,0 +1,46 @@
+metadata:
+  name: pth-ultralytics-yolov5mu-head-r3
+  namespace: cvat
+  annotations:
+    name: Head Detector R3
+    type: detector
+    spec: |
+      [
+        { "id": 0, "name": "head", "type": "rectangle" }
+      ]
+spec:
+  description: YOLOv5mu head detector - Round 3 (best recall, deployed)
+  runtime: 'python:3.10'
+  handler: main:handler
+  eventTimeout: 30s
+  build:
+    image: cvat.pth.ultralytics.yolov5mu-head-r3
+    baseImage: ubuntu:22.04
+
+    directives:
+      preCopy:
+        - kind: ENV
+          value: DEBIAN_FRONTEND=noninteractive
+        - kind: RUN
+          value: apt-get update && apt-get install --no-install-recommends -y wget python3-pip python-is-python3 libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
+        - kind: RUN
+          value: pip install --no-cache-dir torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu
+        - kind: RUN
+          value: pip install --no-cache-dir ultralytics==8.4.0 pillow pyyaml
+        - kind: WORKDIR
+          value: /opt/nuclio
+
+  triggers:
+    myHttpTrigger:
+      numWorkers: 1
+      kind: 'http'
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432 # 32MB
+
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume

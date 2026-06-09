@@ -1,0 +1,6 @@
+path: /workspace/data/golden
+train: images/val
+val: images/val
+
+names:
+  0: head
