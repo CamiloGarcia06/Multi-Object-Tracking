@@ -59,3 +59,18 @@ tasks:
     desc: Import TrackEval
     cmds:
       - "{{.COMPOSE}} exec -T dev python src/trackeval_smoke.py"
+
+  prepare-crowdhuman:
+    desc: Extract CrowdHuman zips and convert ODGT to YOLO format (heads only)
+    cmds:
+      - "{{.COMPOSE}} exec -T dev python src/prepare_crowdhuman.py"
+
+  train-head:
+    desc: Fine-tune YOLO26m on CrowdHuman heads (uses GPU). Pass extra args after --
+    cmds:
+      - "{{.COMPOSE}} exec -T dev python src/train_head_detector.py {{.CLI_ARGS}}"
+
+  validate-head:
+    desc: Validate the trained head detector on the val split
+    cmds:
+      - "{{.COMPOSE}} exec -T dev yolo detect val model=/workspace/outputs/head_detector/yolo26m-crowdhuman-head/weights/best.pt data=/workspace/data/crowdhuman_head.yaml device=0"

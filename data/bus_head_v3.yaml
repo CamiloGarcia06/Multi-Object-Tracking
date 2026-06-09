@@ -1,0 +1,6 @@
+path: /workspace/data/bus_head_v3
+train: images/train
+val: images/val
+
+names:
+  0: head

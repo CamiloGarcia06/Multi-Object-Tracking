@@ -1,0 +1,30 @@
+# Datos y artefactos pesados (NO versionar)
+cvat/
+outputs/
+runs/
+models/
+mlruns/1/
+mlruns/models/
+wandb/
+
+# data/: ignorar todo su contenido EXCEPTO los YAML de configuración
+data/*
+!data/*.yaml
+
+# Pesos / modelos / videos / comprimidos
+*.pt
+*.onnx
+*.engine
+*.mkv
+*.mp4
+*.avi
+*.mov
+*.zip
+*.tar.gz
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
