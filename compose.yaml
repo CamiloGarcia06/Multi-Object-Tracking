@@ -19,6 +19,9 @@ services:
       JUPYTER_TOKEN: ${JUPYTER_TOKEN}
     ports:
       - "${JUPYTER_PORT}:${JUPYTER_PORT}"
+    shm_size: '4gb'
+    mem_limit: 28g
+    memswap_limit: 28g
     command: sleep infinity
 
   mlflow:

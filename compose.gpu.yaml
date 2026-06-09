@@ -1,3 +1,4 @@
 services:
   dev:
-    gpus: ${NVIDIA_VISIBLE_DEVICES_COUNT}
+    devices:
+      - nvidia.com/gpu=all
