@@ -17,6 +17,7 @@ MODELS={
     "R2":   "/workspace/outputs/head_detector/yolo-bus-head-r2/weights/best.pt",
     "R3":   "/workspace/outputs/head_detector/yolo-bus-head-r3/weights/best.pt",
     "R4":   "/workspace/outputs/head_detector/yolo-bus-head-r4/weights/best.pt",
+    "R5":   "/workspace/outputs/head_detector/yolo-bus-head-r5/weights/best.pt",
 }
 CONF, NMS = 0.25, 0.5
 
