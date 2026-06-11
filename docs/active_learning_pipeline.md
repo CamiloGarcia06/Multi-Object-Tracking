@@ -4,7 +4,9 @@ Detector de cabezas para video CCTV top-down/fisheye de buses (interior, multitu
 servido en CVAT vía Nuclio para auto-anotación, mejorado por rondas de active learning.
 
 ## Modelo desplegado
-**R3** (`outputs/head_detector/yolo-bus-head-r3/weights/best.pt`) con **NMS iou=0.5**.
+**R5** (`outputs/head_detector/yolo-bus-head-r5/weights/best.pt`, sha256 `41a9f2ce0906…`) con **NMS iou=0.5**.
+Golden count-MAE **2.04** (supera a R3=2.06). Release: `bus-head-v5`. Servido como la función
+canónica `YOLOv5mu Head Detector`. (Campeón previo: R3, MAE 2.06.)
 Base de entrenamiento: `models/yolov5mu-head-base.pt` (CrowdHuman head, eye-level).
 > Pesos y datasets NO están en git (ver `.gitignore`); el modelo se publica como
 > GitHub Release. Las recetas Nuclio en `serverless/` no incluyen el `.pt`.
@@ -37,13 +39,15 @@ Base de entrenamiento: `models/yolov5mu-head-base.pt` (CrowdHuman head, eye-leve
 |--------|:---:|:---:|:---:|
 | BASE (CrowdHuman) | 0.59 | 0.31 | 5.13 |
 | R2 | 0.69 | 0.51 | 4.17 |
-| **R3 (desplegado)** | 0.85 | 0.76 | **2.06** |
+| R3 | 0.85 | 0.76 | 2.06 |
 | R4 (datos deduplicados) | 0.86 | 0.76 | 2.48 |
+| **R5 (desplegado)** | 0.87 | 0.79 | **2.04** |
 
-Objetivo de la próxima ronda: bajar de **2.06**. Debilidad medida: sub-conteo en
-cámaras nuevas (video02 MAE 2.51) → priorizar recall y generalización.
+Objetivo de la próxima ronda: bajar de **2.04**. R5 mejoró recall (0.76→0.79) y video02
+(2.51→2.46) pero regresionó S08 (0.76→1.12); sigue sub-contando. Aún sin cumplir salida
+Fase 1 (MAE≤1.5, ≤2.0 en unseen, recall≥0.85) → priorizar recall/generalización sin perder S08.
 
 ## Despliegue en CVAT
-Tres funciones Nuclio (selectables en Automatic annotation): `Head Detector R3`,
-`Head Detector R4`, y la genérica `YOLOv5mu Head Detector` (= R3). NMS configurable
+Funciones Nuclio (selectables en Automatic annotation): `Head Detector R3`,
+`Head Detector R4`, y la genérica `YOLOv5mu Head Detector` (= **R5 desplegado**). NMS configurable
 vía `data.get("iou", 0.5)` en `main.py`. Re-arranque tras reinicio: `start_all.sh`.
