@@ -1,0 +1,46 @@
+metadata:
+  name: pth-ultralytics-yolo26x-head
+  namespace: cvat
+  annotations:
+    name: Head Detector yolo26x
+    type: detector
+    spec: |
+      [
+        { "id": 0, "name": "head", "type": "rectangle" }
+      ]
+spec:
+  description: YOLO26x head detector (59.0M, COCO -> bus_head_v5_min5 80ep). Golden v2 count-MAE 1.64, unseen cam 1.85. NMS-free (end2end) - el parametro iou NO tiene efecto.
+  runtime: 'python:3.10'
+  handler: main:handler
+  eventTimeout: 30s
+  build:
+    image: cvat.pth.ultralytics.yolo26x-head
+    baseImage: ubuntu:22.04
+
+    directives:
+      preCopy:
+        - kind: ENV
+          value: DEBIAN_FRONTEND=noninteractive
+        - kind: RUN
+          value: apt-get update && apt-get install --no-install-recommends -y wget python3-pip python-is-python3 libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
+        - kind: RUN
+          value: pip install --no-cache-dir torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu
+        - kind: RUN
+          value: pip install --no-cache-dir ultralytics==8.4.0 pillow pyyaml
+        - kind: WORKDIR
+          value: /opt/nuclio
+
+  triggers:
+    myHttpTrigger:
+      numWorkers: 1
+      kind: 'http'
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432 # 32MB
+
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume
