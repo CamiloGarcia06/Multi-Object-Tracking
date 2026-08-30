@@ -132,6 +132,76 @@ entrada/salida.
 Entregable: video anotado con IDs sobre un clip de puerta. Sirve para calibrar
 expectativas y detectar problemas groseros antes de invertir en anotación.
 
+## B1b. Interfaz de inspección — "Track Studio" (1 día)
+
+Una UI local para subir un video, correr el tracking y **ver** el resultado sin
+tocar la terminal. Es la herramienta del paso "ver", no un entregable de producto.
+
+### Qué es y qué no es
+
+**Gradio, no una aplicación web.** Subida de archivo, reproductor de video y
+controles deslizantes en ~150 líneas, corriendo en el mismo contenedor `dev`. Sin
+build de frontend, sin cola de trabajos, sin base de datos, sin autenticación. Si
+en algún momento hace falta algo más, ya se sabrá; empezar por ahí es construir
+infraestructura para un problema que todavía no existe.
+
+**No es la herramienta de medición.** Esto es importante y conviene decirlo fuerte:
+mirar un video y que "se vea bien" es exactamente la forma de auto-engañarse. Un
+tracker con ID switches frecuentes en la puerta se ve perfectamente bien en
+movimiento — el ojo no lleva la cuenta de los IDs. Las decisiones se toman con
+TrackEval sobre el golden congelado (B3). La UI sirve para **generar hipótesis**,
+no para validarlas.
+
+### Controles a exponer
+
+La UI vale la pena en la medida en que exponga las perillas del tracker. Si es solo
+un reproductor, un MP4 hace lo mismo.
+
+- Modelo: yolo26x / MIN5 (comparación lado a lado del mismo clip).
+- `conf` de detección — clave, porque el rango interesante es 0.10–0.25.
+- Tracker: ByteTrack / BoT-SORT.
+- `track_buffer`, `match_thresh`, `track_high_thresh`, `new_track_thresh`.
+- Longitud mínima de track.
+- Segmento: segundo de inicio y duración.
+- Toggles de dibujo: cajas, IDs, estela de los últimos N centroides, línea de puerta.
+
+Salida: el video anotado **más un panel numérico** — tracks activos por frame, IDs
+únicos totales, duración media de track. Los IDs únicos totales son el indicador
+barato de fragmentación: si un clip con 12 personas reales genera 40 IDs, algo se
+está rompiendo, y eso se ve sin anotar nada.
+
+### Gotchas concretos
+
+1. **El códec.** `scripts/demo/annotate_video.py` escribe con `mp4v`
+   (`VideoWriter_fourcc(*"mp4v")`, línea 83). Eso es MPEG-4 Part 2 y **los
+   navegadores no lo reproducen** — el reproductor queda en negro y parece un bug
+   del tracking cuando es del contenedor de video. Hay que transcodificar a **H.264**
+   con `ffmpeg` (ya está en la imagen, `docker/Dockerfile` línea 10) como paso final,
+   o escribir directo por una tubería a ffmpeg. `opencv-python-headless` no trae
+   codificador H.264 propio.
+2. **El puerto.** `compose.yaml` solo publica `${JUPYTER_PORT}`. Hay que agregar el
+   puerto de Gradio a `ports:` y a `.env`.
+3. **La dependencia.** Agregar `gradio` a `docker/requirements.txt` y reconstruir la
+   imagen. Fijar la versión, como el resto del archivo.
+4. **El tiempo de proceso.** yolo26x son 59M params; un video de 10 minutos no es
+   interactivo. Poner un tope por defecto (20–30 s de clip), mostrar barra de
+   progreso, y dejar claro en la UI que procesa un segmento, no el archivo entero.
+5. **Videos grandes.** La subida por navegador de un `.mkv` de varios GB es
+   incómoda. Ofrecer además un desplegable con los videos ya montados en el
+   contenedor (depende de B0), que va a ser el camino usado el 90% de las veces.
+
+### Por qué se paga dos veces
+
+En Fase 3 (C1) hace falta definir la línea de puerta por cámara, y hacerlo a mano
+con coordenadas es una fuente de errores silenciosos. Esta misma UI es el lugar
+natural: mostrar un frame, hacer clic en dos puntos, elegir el sentido de "entrada"
+y volcar el resultado a `configs/cameras/<camara>.yaml`. Conviene tenerlo en cuenta
+al estructurarla, aunque no se implemente ahora.
+
+Archivo: `scripts/tracking/studio.py`. Debe **reutilizar** la función de tracking de
+B1, no reimplementarla: la UI es una envoltura sobre `track_video.py`, para que lo
+que se ve en pantalla sea exactamente lo que corre en batch.
+
 ## B2. Golden de tracking (el cuello de botella real)
 
 Esto es trabajo de anotación humana y es lo que gobierna el calendario. Sin
@@ -277,12 +347,17 @@ A2 ─┼─> A4 (despliegue)          [paralelo, no bloquea B]
 A3 ─┘
 
 B0 ──> B1 ──> B2 ──> B3 ──> B4 ──> B5 ──> C1 ──> C2 ──> C3 ──> C4
-              ↑
-        cuello de botella:
-        anotación humana
+        │     ↑                                  ↑
+        │  cuello de botella:                    │
+        │  anotación humana                      │
+        └──> B1b (Track Studio) ─────────────────┘
+             UI de inspección; se reutiliza
+             para dibujar la línea de puerta
 ```
 
-# Higiene pendiente (Fase 0 del roadmap)
+# Higiene (Fase 0 del roadmap)
 
-- Abrir el PR de `feature/bus-head-detector` → `main`. Son 7 commits acumulados.
+- ~~Abrir el PR de `feature/bus-head-detector` → `main`.~~ **HECHO** (2026-08-30,
+  PR #3, merge `87576df`). `main` ya contiene todo el pipeline R1–R5 + MIN5 +
+  golden v2 + las ablaciones de arquitectura.
 - Resolver `mlruns/mlflow.db` (commitear o ignorar).
