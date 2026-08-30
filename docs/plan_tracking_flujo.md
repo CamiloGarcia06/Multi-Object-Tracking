@@ -24,6 +24,61 @@ desde Fase 2 es **IDF1 e ID switches en la zona de puerta**, y en Fase 3 el
 **error de conteo de eventos por parada**. Un ±1.6 por frame se promedia y
 desaparece; un ID switch en la puerta mete un pasajero fantasma permanente.
 
+## Modo de operación: batch, no tiempo real
+
+**Decisión del usuario (2026-08-30).** El sistema procesa **videos subidos**, no
+cámaras en vivo. El tiempo real queda como posibilidad futura según avance el
+proyecto, explícitamente **fuera del alcance** de este plan.
+
+No es una limitación: es una ventaja, y conviene aprovecharla en vez de tolerarla.
+
+### Lo que se gana
+
+**Se puede mirar el futuro.** Un tracker en vivo solo puede usar los frames que ya
+pasaron: cuando un ID se rompe, se rompió y no hay vuelta atrás. En batch tenés el
+video entero, así que podés hacer una **segunda pasada que cosa tracklets**: si el
+track 7 muere en el frame 100 cerca de la puerta y el track 23 nace en el frame 112
+a 30px de ahí, con movimiento compatible, casi seguro son la misma persona y se
+pueden unir mirando *hacia adelante*.
+
+Esto importa mucho porque ataca de frente el **riesgo número uno del proyecto** —
+la fragmentación de IDs en la puerta, que es la que produce pasajeros fantasma. Un
+sistema en tiempo real simplemente no puede hacerlo. Ser batch no es el plan B, es
+una capacidad extra.
+
+**Y desaparece el presupuesto de latencia**: no hay que sacrificar precisión por
+velocidad, ni descartar yolo26x por sus 59M params (ver A2).
+
+### La decisión de arquitectura que mantiene la puerta abierta
+
+Como el tiempo real puede aparecer más adelante, conviene no cerrarse ahora — y
+sale gratis si se estructura en dos pasadas separadas:
+
+- **Pasada 1 — causal.** Frame entra, tracks salen. **Sin mirar el futuro.** Es la
+  pasada que un sistema en vivo podría ejecutar tal cual, sin cambios.
+- **Pasada 2 — offline.** Cosido de tracklets, suavizado de trayectorias, resolución
+  de eventos ambiguos. Usa el video completo.
+
+Con esa separación, agregar tiempo real más adelante es **apagar la pasada 2**, no
+reescribir el sistema. Si en cambio se mezclan las dos —por ejemplo, dejando que la
+lógica de eventos consulte frames futuros a mitad de la pasada 1— el día que haga
+falta streaming hay que rehacer todo. Es una restricción barata de respetar hoy y
+cara de recuperar después.
+
+Corolario para B3: **medir las dos pasadas por separado.** Cuánto aporta el cosido
+offline es un número que interesa por sí mismo, porque es exactamente lo que se
+perdería al pasar a vivo.
+
+### Separar cómputo de visualización
+
+Ser batch permite lo obvio: procesar una vez, escribir artefactos a disco
+(MOTChallenge `.txt`, eventos `.csv`, MP4 anotado), y que la interfaz solo
+**reproduzca**. Nada de recalcular para volver a mirar.
+
+Cachear por hash de `(video, modelo, configuración del tracker)` hace que revisar un
+resultado sea instantáneo y que comparar dos configuraciones sea barato — que es
+justamente lo que uno termina haciendo todo el día durante B4.
+
 ---
 
 # Bloque A — Cerrar yolo26x
@@ -59,10 +114,13 @@ el FPS deja de ser un detalle y pasa a ser restricción de diseño.
   TensorRT y volver a medir.
 - Estimar el costo de procesar un video completo de una jornada.
 
-**Criterio:** si yolo26x no alcanza tiempo real (~25–30 FPS) en el hardware de
-destino, el tracking pasa a ser proceso batch offline, no en vivo. Eso es una
-decisión de arquitectura del producto, no un detalle de implementación —
-conviene saberlo antes de construir la Fase 3.
+**Criterio:** ya no es un go/no-go. El sistema es **batch por decisión de
+producto** (ver "Modo de operación" más abajo), así que el FPS no define la
+arquitectura — define el costo. Lo que hay que producir es un número operativo:
+cuántos minutos de cómputo cuesta un video de 15 min, y por lo tanto cuánto
+cuesta una jornada. Con eso se decide si hace falta FP16/TensorRT **más
+adelante**, no ahora. Efecto secundario: al no haber presupuesto de latencia,
+desaparece la principal objeción a los 59M params de yolo26x.
 
 ## A3. Duplicados con NMS-free (bloqueante para desplegar)
 
@@ -189,6 +247,38 @@ está rompiendo, y eso se ve sin anotar nada.
 5. **Videos grandes.** La subida por navegador de un `.mkv` de varios GB es
    incómoda. Ofrecer además un desplegable con los videos ya montados en el
    contenedor (depende de B0), que va a ser el camino usado el 90% de las veces.
+
+### Qué videos subir (y por qué importa)
+
+El uso previsto es **subir videos que el modelo nunca vio**. Eso convierte a la UI,
+sin proponérselo, en una prueba de generalización continua — pero solo si se respeta
+la disciplina de fuentes, porque un video ya usado en entrenamiento se va a ver
+espectacular y no significa nada.
+
+Inventario de `~/Downloads` cruzado contra las fuentes de `bus_head_v5_min5`
+(`s03`, `videoTM_14`, `v04`, `v04_1`, `v04_2`, `v05`, `v05_1`, `v10b`, `v11`, `v12`,
+`v16`, `v16b`, `v18S08`):
+
+| Video | Estado | Nota |
+|-------|--------|------|
+| `videoTM_03`, `videoTM_03(1)` | **nunca visto** | candidato directo |
+| `videoTM_08` | **nunca visto** | candidato directo |
+| `videoTM_17` | **nunca visto** | candidato directo |
+| `videoTM_intelC1`, `videoTM_intelC36` | **nunca visto** | otra cámara/hardware — el más interesante |
+| `videoTM_18`, `videoTM_29` | nunca visto, **nocturno** | luminancia mediana 2–11; espera fallar |
+| `videoTM_02` | held-out | es el **golden de detección** — mirarlo está bien, pero no es "nuevo" |
+| el resto | usados en train | se ven bien por memorización, no por generalización |
+
+Todos son **640×480 @30fps, 15 min** (verificado con ffprobe, incluidos los `intelC*`).
+No hay sorpresa de resolución escondida ahí: el techo físico de 640×480 sigue vigente.
+
+Los `intelC*` merecen atención especial por el nombre: parecen otra cámara o otro
+hardware de captura. Si el encuadre difiere de las `videoTM_*`, es la mejor prueba de
+generalización disponible hoy sin conseguir metraje nuevo.
+
+**Regla:** que la UI muestre de qué fuente viene el video y si esa fuente está en el
+set de entrenamiento. Un cartel de "esta cámara se usó para entrenar" evita sacar
+conclusiones alegres, que es el error fácil cuando se está mirando un video bonito.
 
 ### Por qué se paga dos veces
 
@@ -335,7 +425,12 @@ de eventos.
 4. **yolo26x demasiado lento** (A2) ⇒ el producto es batch, no tiempo real.
 5. **NMS end-to-end reintroduce duplicados** (A3) ⇒ doble conteo, un bug que ya
    existió antes.
-6. **Nocturno sigue sin cubrir.** `videoTM_18` y `videoTM_29` son de noche
+6. **La pasada offline puede volverse una muleta.** El cosido de tracklets (pasada 2)
+   arregla fragmentaciones, y por eso mismo puede tapar un tracker mal ajustado. Si
+   B4 se optimiza mirando solo el resultado final, se termina con una pasada 1 mala
+   compensada por una pasada 2 agresiva — y el día que se quiera tiempo real, el
+   sistema se cae entero. Por eso B3 mide las dos por separado.
+7. **Nocturno sigue sin cubrir.** `videoTM_18` y `videoTM_29` son de noche
    (luminancia mediana 2–11). El flujo de pasajeros también ocurre de noche.
    Queda fuera de este plan de forma consciente, pero es deuda conocida.
 
