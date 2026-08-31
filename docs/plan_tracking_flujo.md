@@ -118,20 +118,71 @@ lleguen al tracker.
 
 Costo: ~1h, sin GPU de entrenamiento.
 
-## A2. Throughput (30 min)
+## A2. Throughput — **MEDIDO (2026-08-30)**
 
 El sistema es **batch por decisión de producto** (ver "Modo de operación"), así que
-el FPS no define la arquitectura: define el costo. No hay criterio de aprobado o
-rechazado, hay un número que producir.
+el FPS no define la arquitectura: define el costo. No había criterio de aprobado o
+rechazado, había un número que producir. Medido con `scripts/eval/bench_throughput.py`
+sobre `videoTM_17.mkv` (nunca visto), RTX 4060 Ti 16GB, imgsz 640, conf 0.25.
 
-- Medir FPS de inferencia a imgsz 640 sobre un clip real, en la GPU del host.
-- Traducirlo a lo operativo: cuántos minutos de cómputo cuesta un video de 15 min,
-  y por lo tanto una jornada completa.
+### El número
 
-Con ese número se decide **más adelante** si vale la pena FP16 o TensorRT. Hoy no.
+**End-to-end contra reloj de pared** — decode + modelo + tracker + dedup, que es
+exactamente el trabajo de la pasada causal:
 
-Efecto secundario ya incorporado: al no haber presupuesto de latencia, desaparece la
-principal objeción a los 59M params de yolo26x.
+| escenario | FPS | video de 15 min | vs tiempo real |
+|-----------|-----|-----------------|----------------|
+| yolo26x detect FP16 | 82.7 | 5.4 min | 0.36× |
+| yolo26x detect + dedup | 82.1 | 5.5 min | 0.37× |
+| **yolo26x + ByteTrack + dedup** | **76.4** | **5.9 min** | **0.39×** |
+| MIN5 + ByteTrack + dedup (referencia) | 141.6 | 3.2 min | 0.21× |
+
+**Un video de 15 minutos se procesa en ~6 minutos: 2,5× más rápido que tiempo real.**
+
+### Lo que se aprende
+
+**No hace falta optimizar nada.** FP16 aporta ~10% y ya está aplicado; el batching
+**empeora** (49.9 FPS a batch 16 contra 59.0 a batch 1 — la GPU no es el cuello);
+TensorRT no se justifica. La idea de "detectar en lotes porque somos offline" no
+sirve acá: a 640×480 el modelo ya satura sin necesidad de agrupar.
+
+**El decode es irrelevante**: 4.900 FPS, dos órdenes de magnitud por encima del
+modelo. Era mi principal sospecha y estaba equivocada — a 640×480 decodificar no
+cuesta nada.
+
+**El tracker es casi gratis**: 82.1 → 76.4 FPS, un 7%. ByteTrack no es un problema
+de rendimiento. **El dedup de A1 tampoco**: 0.7%.
+
+**Lo que cuesta yolo26x frente a MIN5:** 1,9× más lento, o sea +2,7 minutos por
+video de 15. Con el sistema en batch, eso no es un precio relevante frente a la
+mejora de calidad — que era justamente la conclusión que sostenía la decisión.
+
+### Consecuencia para Track Studio (B1b)
+
+Un clip de 30 s se procesa en **~12 segundos**. El tope por defecto de 20–30 s que
+propuse es cómodo: se puede iterar sobre configuraciones sin esperar. Un video
+completo de 15 min son ~6 min, aceptable para dejar corriendo en background.
+
+### Hallazgo lateral, y no menor
+
+En `videoTM_17` (cámara nunca vista) el dedup borró **133 de 3.649 cajas = 3.6%**,
+contra el **2.2%** medido sobre el golden en A1. Los duplicados son **más frecuentes
+en metraje no visto**, que es exactamente la predicción de A1: la propiedad
+"una caja por cabeza" es aprendida, y se degrada donde los datos no se parecen al
+entrenamiento. MIN5, en el mismo video, borró **0**.
+
+Refuerza que el NMS post-hoc no es opcional: en producción, sobre cámaras nuevas,
+el problema es mayor que en el golden.
+
+### Nota de método
+
+Los micro-benchmarks de `predict()` cuadro a cuadro **engañan**: ultralytics
+reconstruye el predictor en cada llamada, así que miden overhead de setup y no
+inferencia (dan ~59 FPS donde el pipeline real hace 83). El script los conserva solo
+como desglose; la medición que vale es la de reloj de pared.
+
+Costo de una jornada: multiplicar 6 min por la cantidad de videos. Ese número
+depende de la operación y no está definido todavía.
 
 ## A3. Despliegue y release
 
@@ -540,8 +591,9 @@ de eventos.
    duplicado, y un track duplicado que cruza la puerta es un pasajero fantasma. Es
    el riesgo del Bloque A que llega hasta el conteo final, y ya existió antes como
    bug de detección.
-5. **El costo de cómputo por jornada resulta incómodo** (A2). Riesgo menor: al ser
-   batch no rompe nada, solo obliga a FP16/TensorRT antes de lo previsto.
+5. ~~**El costo de cómputo por jornada resulta incómodo** (A2).~~ **DESCARTADO**
+   (medido 2026-08-30): 2,5× más rápido que tiempo real con todo encendido, y sin
+   necesidad de optimizar.
 6. **La pasada offline puede volverse una muleta.** El cosido de tracklets (pasada 2)
    arregla fragmentaciones, y por eso mismo puede tapar un tracker mal ajustado. Si
    B4 se optimiza mirando solo el resultado final, se termina con una pasada 1 mala
