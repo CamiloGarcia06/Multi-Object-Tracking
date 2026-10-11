@@ -14,7 +14,11 @@ Config: conf=0.25, NMS iou=0.5. P/R/mAP vía `yolo val`; MAE por conteo directo.
 | MIN5 | 0.889 | **0.801** | **0.872** | 0.625 | **1.83** | -1.57 | <-- DESPLEGADO (campeón)
 | yolo26m-min5 | 0.898 | 0.732 | 0.837 | 0.559 | 1.91 | -1.81 | <-- COCO, 21.9M
 | v5mu-coco-min5 | 0.906 | 0.745 | 0.845 | — | 1.76 | -1.52 | <-- COCO, 25.1M
-| **yolo26x-min5** | 0.908 | 0.762 | 0.854 | — | **1.64** | -1.36 | <-- COCO, 59.0M — MEJOR MAE
+| **yolo26x-min5** | 0.908 | 0.762 | 0.854 | — | **1.64**¹ | -1.36 | <-- COCO, 59.0M — MEJOR MAE
+
+¹ El 1.64 está inflado por duplicados (2.36% de las cabezas reciben ≥2 cajas). Con
+NMS post-hoc a 0.6 el número honesto es **MAE 1.68 / sesgo -1.58**. Sigue ganando a
+MIN5 (1.83) y en cámara no vista (1.89 vs 2.04). Ver "A1 — Duplicados" más abajo.
 
 MAE por cámara (R3):   S08=0.94 v05=1.82 v16=1.65 video02=2.58
 MAE por cámara (R5):   S08=1.41 v05=1.65 v16=1.24 video02=2.55
@@ -67,6 +71,110 @@ pierde 42. Significancia LIMÍTROFE y con un solo seed; además hay comparacione
 yolo26x vs v5mu-coco: dif -0.119, IC95 [-0.325,+0.086], p=0.24 -> INDISTINGUIBLE.
 yolo26x da además el mejor resultado histórico en la cámara no vista: **video02 = 1.85**.
 ANTES DE DESPLEGAR: repetir con 3 seeds (~4h) para separar la mejora de la varianza entre corridas.
+
+### A1 — Duplicados con cabeza NMS-free (2026-08-30): **el criterio FALLA**
+
+Medido con `scripts/eval/dup_analysis.py` sobre el golden v2 (151 frames), conf 0.25,
+matching greedy a IoU 0.5. Duplicado = cabeza real cubierta por ≥2 predicciones.
+
+| | yolo26x | MIN5 |
+|---|---|---|
+| pares de predicciones solapadas (IoU>0.6) | **34** (en 29 frames) | **0** |
+| cabezas reales con ≥2 cajas | **30** | 1 (0.08%) |
+| — de esas, duplicación limpia | **28** (2.20%) | — |
+| — de esas, dos personas pegadas (ambiguo, no es duplicación) | 2 | — |
+| fusiones (cabeza absorbida por caja ajena) | 6 (0.47%) | 5 (0.39%) |
+
+**yolo26x duplica y MIN5 no.** El "cero duplicados" era una propiedad del NMS
+configurado a 0.5, no del modelo: al pasar a una cabeza end-to-end se perdió.
+Confirmado además que `iou` es inerte en yolo26x (115 cajas a 0.3/0.5/0.7/0.9)
+mientras que en MIN5 sí actúa (119 cajas a 0.5 → 163 a 0.9).
+
+**Por qué NO se ven en CVAT** (verificado sobre las coordenadas crudas y renderizado
+en `outputs/dup_crops.jpg`): las cajas duplicadas están **superpuestas**, no corridas.
+
+```
+video02_f010095   [59.3 329.8 160.3 414.9] conf 0.653
+                  [57.7 329.8 159.7 415.3] conf 0.400   -> 1.6 px de separación
+video02_f008640   [31.9  10.6  98.1  76.5] conf 0.543
+                  [31.5  10.1  98.1  76.9] conf 0.409   -> 0.6 px de separación
+```
+
+Desplazamiento entre pares: **mediana 2.6 px**, p90 9.5 px, máximo 24.9 px.
+**16 de 30 pares están a ≤3 px** sobre 640×480: se ven como un único rectángulo de
+borde grueso. Y solo 27 de 151 frames tienen alguno, o sea que **el 82% de los frames
+está limpio**.
+
+Esto los distingue del doble conteo histórico del pipeline viejo, donde las cajas
+estaban claramente corridas y saltaban a la vista. Este modo de fallo es silencioso:
+no se detecta mirando, solo contando.
+
+Además, la pre-anotación en CVAT se hizo a **conf 0.10**, donde hay 3× más duplicados
+(79, 6.22%) pero el modelo sobre-propone a propósito (~15 cajas/frame) y el anotador
+borra cajas sobrantes igual — un duplicado ahí es indistinguible de cualquier otra
+caja de más, y borrarlo es el mismo gesto.
+
+| conf | cabezas con ≥2 cajas | % del golden |
+|------|---------------------|--------------|
+| 0.10 | 79 | 6.22% |
+| 0.25 | 30 | 2.36% |
+| 0.40 | 15 | 1.18% |
+
+**El arreglo es limpio: NMS post-hoc.** Barrido sobre yolo26x:
+
+| umbral | borradas | P | R | MAE | sesgo |
+|--------|---------|---|---|-----|-------|
+| sin | 0 | 0.899 | 0.753 | 1.64 | −1.36 |
+| 0.5 | 36 | 0.927 | 0.751 | 1.70 | −1.60 |
+| **0.6** | **33** | **0.926** | **0.752** | **1.68** | **−1.58** |
+| 0.7 | 31 | 0.925 | 0.752 | 1.68 | −1.57 |
+| 0.9 | 19 | 0.915 | 0.753 | 1.64 | −1.49 |
+
+A 0.6: **+0.027 de precisión y −0.001 de recall**. Las cajas borradas son falsos
+positivos casi puros. En MIN5 el barrido no borra nada a ningún umbral — ya estaba
+limpio. Punto de operación recomendado: **0.6**.
+
+**HALLAZGO IMPORTANTE — el MAE 1.64 estaba inflado por cancelación de errores.**
+Los duplicados sumaban cajas a un conteo que venía corto, así que dos errores se
+tapaban entre sí. Con los duplicados removidos, el sesgo de yolo26x es **−1.58**,
+prácticamente idéntico al **−1.57** de MIN5.
+
+yolo26x **igual sigue ganando**, pero por otro mecanismo y por menos margen:
+
+| | yolo26x sin dedup | yolo26x dedup | MIN5 |
+|---|---|---|---|
+| MAE global | 1.64 | **1.68** | 1.83 |
+| sesgo | −1.36 | −1.58 | −1.57 |
+| MAE video02 (no vista) | 1.85 | **1.89** | 2.04 |
+
+Mismo sesgo que MIN5 pero menor MAE ⇒ la ventaja real de yolo26x no es contar más
+cerca en promedio, es **variar menos entre frames**. Y la ventaja en la cámara no
+vista sobrevive al dedup (1.89 vs 2.04), que era el argumento que sostenía la
+decisión de adoptarlo.
+
+**Perfil de los duplicados** (los 30 casos):
+
+- IoU entre las cajas del par: **mediana 0.926** — son cajas casi idénticas, no dos
+  detecciones ligeramente corridas. Duplicación genuina, no ambigüedad de posición.
+- Confianza: caja principal 0.637 mediana, caja extra 0.407. La extra es la "segunda
+  opinión", pero está muy por encima de 0.25 ⇒ subir el umbral de confianza no la
+  elimina sin costar recall.
+- Tamaño: las cabezas duplicadas son **más chicas** que el promedio (lado mediano
+  47.8px vs 62.7px del golden completo).
+- **No es aglomeración**: 8.05% de las cabezas en frames con 0–4 cabezas contra ~1.9%
+  en frames con 10+. Contradice la expectativa histórica (el doble conteo del
+  pipeline viejo sí aparecía en aglomeración). n pequeño en el tramo disperso (7 de
+  87 cabezas), así que es hipótesis, no conclusión.
+
+**Consecuencia para el tracking (Fase 2):** hay que aplicar el NMS post-hoc **antes**
+de que las cajas lleguen al tracker. En detección un duplicado se compensa con una
+cabeza perdida en otro lado; en tracking no hay tal cancelación — el duplicado se
+vuelve un **track duplicado**, y un track duplicado que cruza la puerta es un
+pasajero fantasma permanente en la ocupación acumulada.
+
+**Pendiente de despliegue:** `serverless/yolo26x-head/main.py` hoy no filtra nada
+(el `iou` que recibe es inerte). Si se despliega yolo26x en CVAT hay que agregarle el
+NMS post-hoc a 0.6, o la pre-anotación va a traer cajas dobles.
 
 ### Qué cambió respecto de v1
 Auditoría manual completa en CVAT (task 6 / job 12 `golden_val_full_audit`), a ciegas

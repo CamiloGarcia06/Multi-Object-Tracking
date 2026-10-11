@@ -8,9 +8,11 @@
 
 **yolo26x-min5 pasa a ser el modelo principal** (golden count-MAE 1.64, sesgo
 −1.36, mejor resultado histórico en la cámara no vista video02 = 1.85). La
-evidencia estadística es limítrofe (p=0.043, IC95 cruza el cero, un solo seed),
-pero el Bloque A cierra esa duda **en paralelo** en vez de bloquear el trabajo
-de tracking, que es la ruta crítica del producto.
+evidencia estadística es limítrofe (p=0.043, IC95 cruza el cero, un solo seed) y
+**se acepta así**: el argumento que sostiene la decisión no es el p-valor sino el
+mejor resultado histórico en la cámara no vista, que es lo más parecido a
+producción que hay disponible. Confirmarlo con 3 seeds no cambiaría nada de lo que
+se va a hacer, así que queda postergado (ver Bloque A).
 
 ## Principio que ordena todo el plan
 
@@ -83,46 +85,11 @@ justamente lo que uno termina haciendo todo el día durante B4.
 
 # Bloque A — Cerrar yolo26x
 
-Corre en paralelo al Bloque B. Solo A3 es bloqueante para desplegar.
+yolo26x **ya está en uso** y no se va a reemplazar. Este bloque no decide eso: son
+las cosas que quedaron sueltas alrededor de esa decisión. Corre en paralelo al
+Bloque B y ninguna de sus tareas lo bloquea.
 
-## A1. Tres seeds (~4h GPU, desatendido)
-
-El baseline compara corridas de un solo seed. Con `yolo26x vs MIN5` en
-p=0.043 e IC95 [−0.404, +0.026], no se puede separar la mejora de la varianza
-entre corridas.
-
-- Repetir `yolo26x-min5` con seeds distintos (receta idéntica: `bus_head_v5_min5`,
-  80 ep, imgsz 640, batch 8, desde `yolo26x.pt` COCO).
-- Evaluar los 3 contra el golden con el matcher greedy propio a **conf fijo 0.25**
-  (no usar el P/R de `yolo val`: reporta en el máximo F1 de cada modelo, umbrales
-  distintos, no comparables entre modelos).
-- Reportar media ± desviación de MAE, no el mejor.
-
-**Criterio:** si la media de los 3 seeds queda ≤ 1.75, yolo26x se confirma. Si
-queda ≥ 1.80, es indistinguible de `v5mu-coco-min5` (1.76) y conviene quedarse
-con el modelo de 25.1M por costo de inferencia.
-
-Salida: fila nueva en `docs/golden_baseline.md`.
-
-## A2. Throughput (30 min)
-
-59.0M params vs 25.1M del campeón anterior. Para tracking sobre videos completos
-el FPS deja de ser un detalle y pasa a ser restricción de diseño.
-
-- Medir FPS de inferencia pura a imgsz 640 sobre un clip real, en la GPU del host.
-- Medir también con `half=True` (FP16) y, si el margen es estrecho, exportar a
-  TensorRT y volver a medir.
-- Estimar el costo de procesar un video completo de una jornada.
-
-**Criterio:** ya no es un go/no-go. El sistema es **batch por decisión de
-producto** (ver "Modo de operación" más abajo), así que el FPS no define la
-arquitectura — define el costo. Lo que hay que producir es un número operativo:
-cuántos minutos de cómputo cuesta un video de 15 min, y por lo tanto cuánto
-cuesta una jornada. Con eso se decide si hace falta FP16/TensorRT **más
-adelante**, no ahora. Efecto secundario: al no haber presupuesto de latencia,
-desaparece la principal objeción a los 59M params de yolo26x.
-
-## A3. Duplicados con NMS-free (bloqueante para desplegar)
+## A1. Duplicados con NMS-free ← la única que importa para el tracking
 
 Parcialmente resuelto ya. `serverless/yolo26x-head/main.py` documenta —y verificó
 empíricamente— que yolo26 es **end-to-end / NMS-free**: el parámetro `iou` se
@@ -131,30 +98,135 @@ tiene ningún efecto** (iou 0.3 / 0.5 / 0.7 / 0.9 devuelven exactamente las mism
 cajas). El modelo resuelve los duplicados en su propia cabeza de detección.
 
 Lo que queda abierto no es la semántica del parámetro sino la consecuencia: el
-"cero duplicados" del pipeline actual se conseguía **configurando** NMS a 0.5.
-Ahora es una propiedad aprendida del modelo, no un ajuste. Hay que comprobarla,
-no asumirla.
+"cero duplicados" del pipeline se conseguía **configurando** NMS a 0.5. Ahora es una
+propiedad **aprendida** del modelo, no un ajuste. Hay que comprobarla, no asumirla.
 
-- Contar duplicados en las predicciones de yolo26x sobre el golden: pares de
-  cajas con IoU > 0.6 asignadas a la misma cabeza real.
+- Contar duplicados en las predicciones de yolo26x sobre el golden: pares de cajas
+  con IoU > 0.6 asignadas a la misma cabeza real.
 - Comparar contra el mismo conteo para MIN5 con NMS 0.5.
 - Revisar en particular los frames de mayor aglomeración, donde el doble conteo
   apareció históricamente.
 
-**Criterio:** duplicados ≤ los de MIN5. Si el modelo NMS-free duplica más, ya no
-hay una perilla que ajustar —hay que filtrar en post-proceso— y eso cambia el
-balance frente a `v5mu-coco-min5`.
+**Por qué importa acá y no solo en detección:** una caja duplicada que entra al
+tracker se convierte en un **track duplicado**, y un track duplicado que cruza la
+línea de puerta es un **pasajero fantasma** en el conteo final. Es el único punto
+del Bloque A con efecto real sobre el producto.
 
-## A4. Despliegue y release
+**Criterio:** duplicados ≤ los de MIN5. Si el modelo NMS-free duplica más, ya no hay
+una perilla que ajustar: hay que filtrar en post-proceso, antes de que las cajas
+lleguen al tracker.
 
-Solo si A1 confirma y A3 pasa.
+Costo: ~1h, sin GPU de entrenamiento.
+
+## A2. Throughput — **MEDIDO (2026-08-30)**
+
+El sistema es **batch por decisión de producto** (ver "Modo de operación"), así que
+el FPS no define la arquitectura: define el costo. No había criterio de aprobado o
+rechazado, había un número que producir. Medido con `scripts/eval/bench_throughput.py`
+sobre `videoTM_17.mkv` (nunca visto), RTX 4060 Ti 16GB, imgsz 640, conf 0.25.
+
+### El número
+
+**End-to-end contra reloj de pared** — decode + modelo + tracker + dedup, que es
+exactamente el trabajo de la pasada causal:
+
+| escenario | FPS | video de 15 min | vs tiempo real |
+|-----------|-----|-----------------|----------------|
+| yolo26x detect FP16 | 82.7 | 5.4 min | 0.36× |
+| yolo26x detect + dedup | 82.1 | 5.5 min | 0.37× |
+| **yolo26x + ByteTrack + dedup** | **76.4** | **5.9 min** | **0.39×** |
+| MIN5 + ByteTrack + dedup (referencia) | 141.6 | 3.2 min | 0.21× |
+
+**Un video de 15 minutos se procesa en ~6 minutos: 2,5× más rápido que tiempo real.**
+
+### Lo que se aprende
+
+**No hace falta optimizar nada.** FP16 aporta ~10% y ya está aplicado; el batching
+**empeora** (49.9 FPS a batch 16 contra 59.0 a batch 1 — la GPU no es el cuello);
+TensorRT no se justifica. La idea de "detectar en lotes porque somos offline" no
+sirve acá: a 640×480 el modelo ya satura sin necesidad de agrupar.
+
+**El decode es irrelevante**: 4.900 FPS, dos órdenes de magnitud por encima del
+modelo. Era mi principal sospecha y estaba equivocada — a 640×480 decodificar no
+cuesta nada.
+
+**El tracker es casi gratis**: 82.1 → 76.4 FPS, un 7%. ByteTrack no es un problema
+de rendimiento. **El dedup de A1 tampoco**: 0.7%.
+
+**Lo que cuesta yolo26x frente a MIN5:** 1,9× más lento, o sea +2,7 minutos por
+video de 15. Con el sistema en batch, eso no es un precio relevante frente a la
+mejora de calidad — que era justamente la conclusión que sostenía la decisión.
+
+### Consecuencia para Track Studio (B1b)
+
+Un clip de 30 s se procesa en **~12 segundos**. El tope por defecto de 20–30 s que
+propuse es cómodo: se puede iterar sobre configuraciones sin esperar. Un video
+completo de 15 min son ~6 min, aceptable para dejar corriendo en background.
+
+### Hallazgo lateral, y no menor
+
+En `videoTM_17` (cámara nunca vista) el dedup borró **133 de 3.649 cajas = 3.6%**,
+contra el **2.2%** medido sobre el golden en A1. Los duplicados son **más frecuentes
+en metraje no visto**, que es exactamente la predicción de A1: la propiedad
+"una caja por cabeza" es aprendida, y se degrada donde los datos no se parecen al
+entrenamiento. MIN5, en el mismo video, borró **0**.
+
+Refuerza que el NMS post-hoc no es opcional: en producción, sobre cámaras nuevas,
+el problema es mayor que en el golden.
+
+### Nota de método
+
+Los micro-benchmarks de `predict()` cuadro a cuadro **engañan**: ultralytics
+reconstruye el predictor en cada llamada, así que miden overhead de setup y no
+inferencia (dan ~59 FPS donde el pipeline real hace 83). El script los conserva solo
+como desglose; la medición que vale es la de reloj de pared.
+
+Costo de una jornada: multiplicar 6 min por la cantidad de videos. Ese número
+depende de la operación y no está definido todavía.
+
+## A3. Despliegue y release
+
+Cuando quieras que CVAT pre-anote con yolo26x. Solo requiere que A1 pase.
 
 - `/deploy-head` con los pesos de yolo26x (swap de `best.pt` + redeploy con
   `nuctl`), release `bus-head-yolo26x`.
 - Actualizar `CHAMPION` en `scripts/demo/annotate_video.py`, que hoy apunta a
   `yolo-bus-head-min5/weights/best.pt`.
 
----
+## Lo que se sacó de este bloque, y por qué
+
+**Los 3 seeds (~4h GPU) ya no están acá.** Estaban para decidir entre yolo26x y
+`v5mu-coco-min5`, y esa decisión ya está tomada — con un argumento que no depende del
+p-valor: yolo26x da el mejor resultado histórico en la cámara no vista
+(`video02` = 1.85), que es la evidencia más parecida a lo que pasará en producción.
+
+Reentrenar con otra seed **no produce un modelo mejor**; produce información sobre
+cuánto varía el proceso de entrenamiento. Y esa información solo servía para elegir
+entre dos modelos. Además, el argumento de costo que la sostenía —"si empatan,
+quedate con el de 25.1M"— se cayó cuando el sistema pasó a ser batch: sin
+presupuesto de latencia, que sea 2,4× más grande no cuesta nada.
+
+Ninguno de los dos resultados posibles del experimento cambiaría lo que se va a
+hacer. Eso lo descalifica.
+
+La honestidad se mantiene por escrito, no por GPU: `docs/golden_baseline.md` ya dice
+que la comparación es de un solo seed y que la significancia es limítrofe
+(`p=0.043`, IC95 que cruza el cero, con comparaciones múltiples de por medio). Eso
+queda como está.
+
+**Cuándo sí conviene pagarlas: al entrenar v6.** Ahí vuelve a haber una decisión real
+("¿esta mejora es de verdad?"), y las seeds sirven para algo distinto y más
+duradero — medir el **piso de ruido del golden**. Si dos corridas idénticas difieren
+±0.10 en MAE, entonces una mejora de 0.05 no significa nada y una de 0.30 sí. Ese
+número se mide **una vez** y calibra todas las comparaciones futuras.
+
+Dicho de otro modo: las seeds no son un peaje para usar yolo26x, son una calibración
+del banco de pruebas. Se pagan cuando haya una decisión que dependa de ellas.
+
+Anotado también en la conclusión "más capacidad ayuda" (21.9M → 1.91, 25.1M → 1.76,
+59.0M → 1.64): se apoya en corridas de un solo seed, pero **no hay ninguna decisión
+colgando de ella** —no queda un modelo más grande por probar en esa familia—, así
+que tampoco justifica el gasto.
 
 # Bloque B — Fase 2: tracking con IDs persistentes
 
@@ -515,9 +587,13 @@ de eventos.
 3. **Fragmentación en la puerta** — el peor caso para el producto, porque es
    exactamente donde importa: aglomeración, oclusión mutua y cambio de dirección
    ocurren todos en el mismo lugar.
-4. **yolo26x demasiado lento** (A2) ⇒ el producto es batch, no tiempo real.
-5. **NMS end-to-end reintroduce duplicados** (A3) ⇒ doble conteo, un bug que ya
-   existió antes.
+4. **Duplicados de la cabeza NMS-free** (A1). Una caja duplicada se vuelve un track
+   duplicado, y un track duplicado que cruza la puerta es un pasajero fantasma. Es
+   el riesgo del Bloque A que llega hasta el conteo final, y ya existió antes como
+   bug de detección.
+5. ~~**El costo de cómputo por jornada resulta incómodo** (A2).~~ **DESCARTADO**
+   (medido 2026-08-30): 2,5× más rápido que tiempo real con todo encendido, y sin
+   necesidad de optimizar.
 6. **La pasada offline puede volverse una muleta.** El cosido de tracklets (pasada 2)
    arregla fragmentaciones, y por eso mismo puede tapar un tracker mal ajustado. Si
    B4 se optimiza mirando solo el resultado final, se termina con una pasada 1 mala
@@ -530,9 +606,10 @@ de eventos.
 # Dependencias
 
 ```
-A1 ─┐
-A2 ─┼─> A4 (despliegue)          [paralelo, no bloquea B]
-A3 ─┘
+A1 (duplicados) ──> A3 (despliegue)   [paralelo, no bloquea B]
+A2 (throughput) ─────┘
+
+3 seeds: postergado a v6 (ver "Lo que se sacó de este bloque")
 
 B0 ──> B1 ──> B2 ──> B3 ──> B4 ──> B5 ──> C1 ──> C2 ──> C3 ──> C4
         │     ↑                                  ↑
