@@ -27,10 +27,30 @@ tenía. Así:
     líneas y se va al pasillo, solo cruza una: nunca estuvo FUERA.
   - **Fragmentación: se acepta y se mide** (`nacen_o_mueren_en_la_puerta`).
 
-Falta (no está aquí): ignorar lo que pase con la puerta cerrada.
+Esa es la regla `curvas`. Falla por el DETECTOR, no por la regla: casi nunca ve
+la cabeza fuera, en el andén (#28: 2 de 9 subidas en tm07_a). Las cabezas
+aparecen ya en el umbral y desde ahí caminan al pasillo.
+
+Regla `od` (origen–destino, por defecto). Mira dónde NACE y dónde MUERE el
+track, con `d` = distancia con signo a la curva interior (positiva = pasillo):
+
+  - **sube:** nace en la zona de la puerta (d <= `zona_puerta`) con la puerta
+    abierta y llega al pasillo (d >= `pasillo`).
+  - **baja:** estuvo en el pasillo y muere en la zona de la puerta con la
+    puerta abierta.
+  - **Quien ya estaba de pie junto a la puerta antes de abrirse no sube:**
+    nació con la puerta cerrada.
+  - El frame del evento es cuando pasa la curva interior (d = 0).
+  - **Fragmentación:** un trozo que nace en el pasillo no cuenta; si el track
+    se rompe antes de llegar al pasillo, la subida se pierde
+    (`nacen_en_puerta_sin_llegar` lo mide).
+
+Puerta abierta: `--door` (JSON de intervalos [inicio, fin] en frames del video),
+con `holgura` frames de margen a cada lado. Sin `--door`, siempre abierta.
 
 Uso:
   uv run scripts/flow/events.py selftest
+  uv run scripts/flow/events.py events --camera ... --job 28 --door data/flow_videos/puerta_abierta_videoTM_07.json
   uv run scripts/flow/events.py events --camera configs/cameras/videoTM_07.yaml --tracks gt.txt
   uv run scripts/flow/events.py events --camera ... --job 23 [--gt data/tracking_golden/tm07_a]
   uv run scripts/flow/events.py compare --camera ... --gt data/tracking_golden/tm07_a --job 23
@@ -38,7 +58,7 @@ Uso:
 `--job` baja el MOT del job de track-studio; con `--gt` se corta al tramo de ese
 clip (start/seqLength del seqinfo.ini), como hace eval_tracking.py publish.
 `compare` usa como verdad los eventos del golden de tracking y empareja por
-dirección dentro de ±`--tol` frames.
+dirección dentro de ±`--tol` frames. `--rule curvas` recupera la regla anterior.
 """
 import argparse, collections, csv, json, pathlib, sys
 
@@ -48,6 +68,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "trackin
 from eval_tracking import _http, cut_lines, seqinfo  # noqa: E402
 
 INSIDE, OUTSIDE = 1, -1
+OD_DEFAULTS = {"zona_puerta": 40, "pasillo": 80, "holgura": 15}
 
 
 def _curve(pts):
@@ -68,7 +89,8 @@ def x_at(curve, y):
 def load_camera(path):
     data = yaml.safe_load(pathlib.Path(path).read_text())
     cam = {"outer": _curve(data["door"]["outer"]), "inner": _curve(data["door"]["inner"]),
-           "size": tuple(data["size"]), "name": pathlib.Path(path).stem}
+           "size": tuple(data["size"]), "name": pathlib.Path(path).stem,
+           "od": {**OD_DEFAULTS, **(data.get("od") or {})}}
     ix, iy = data["inside"]
     for k in ("outer", "inner"):
         gap = x_at(cam[k], iy) - ix
@@ -121,13 +143,47 @@ def track_events(cam, points):
     return events
 
 
-def detect(cam, lines):
+def od_events(cam, points):
+    """Regla origen–destino: [(frame_evento, tipo, frame_puerta)].
+
+    `frame_puerta` es el frame en que se mira si la puerta estaba abierta: el
+    nacimiento para `sube`, la muerte para `baja`.
+    """
+    zone, aisle = cam["od"]["zona_puerta"], cam["od"]["pasillo"]
+    d = [(f, signed(cam, "inner", x, y)) for f, x, y in points]
+    if max(v for _, v in d) < aisle:
+        return []
+    events = []
+    (f0, d0), (f1, d1) = d[0], d[-1]
+    if d0 <= zone:
+        events.append((next(f for f, v in d if v > 0), "sube", f0))
+    if d1 <= zone:
+        events.append((next(f for f, v in reversed(d) if v > 0), "baja", f1))
+    return events
+
+
+def door_filter(path, offset=0, slack=0):
+    """is_open(frame) desde el JSON de intervalos; `offset` pasa del frame del MOT al del video."""
+    if not path:
+        return lambda f: True
+    spans = json.loads(pathlib.Path(path).read_text())
+    return lambda f: any(lo - slack <= f + offset <= hi + slack for lo, hi in spans)
+
+
+def detect(cam, lines, rule="od", is_open=lambda f: True):
     tracks = parse_tracks(lines)
-    events = sorted((f, tid, kind) for tid, pts in tracks.items() for f, kind in track_events(cam, pts))
+    raw = [(f, tid, kind, g) for tid, pts in tracks.items()
+           for f, kind, g in (od_events(cam, pts) if rule == "od"
+                              else [(f, k, f) for f, k in track_events(cam, pts)])]
+    events = sorted((f, tid, kind) for f, tid, kind, g in raw if is_open(g))
+    zone, aisle = cam["od"]["zona_puerta"], cam["od"]["pasillo"]
+    stuck = sum(1 for pts in tracks.values() if signed(cam, "inner", *pts[0][1:]) <= zone
+                and max(signed(cam, "inner", x, y) for _, x, y in pts) < aisle)
     # tracks que nacen o mueren junto al borde de la puerta: candidatos a persona no contada
     edge = sum(1 for pts in tracks.values() for f, x, y in (pts[0], pts[-1])
                if at_door(cam, x, y) and -30 <= signed(cam, "outer", x, y) and signed(cam, "inner", x, y) <= 30)
-    return events, {"tracks": len(tracks), "nacen_o_mueren_en_la_puerta": edge}
+    return events, {"tracks": len(tracks), "con_puerta_cerrada": len(raw) - len(events),
+                    "nacen_en_puerta_sin_llegar": stuck, "nacen_o_mueren_en_la_puerta": edge}
 
 
 def source_lines(a):
@@ -143,6 +199,13 @@ def source_lines(a):
     return lines
 
 
+def frame_offset(a):
+    """Frame del video que es el frame 0 del MOT: los cortados al golden empiezan en 1."""
+    if a.gt:
+        return int(seqinfo(pathlib.Path(a.gt) / "gt" / "gt.txt")["start"]) - 1
+    return a.start - 1
+
+
 def summary(events):
     c = collections.Counter(kind for _, _, kind in events)
     return {"sube": c["sube"], "baja": c["baja"]}
@@ -150,7 +213,8 @@ def summary(events):
 
 def cmd_events(a):
     cam = load_camera(a.camera)
-    events, diag = detect(cam, source_lines(a))
+    is_open = door_filter(a.door, frame_offset(a), cam["od"]["holgura"])
+    events, diag = detect(cam, source_lines(a), a.rule, is_open)
     w = csv.writer(sys.stdout)
     w.writerow(["frame", "track_id", "direccion"])
     w.writerows(events)
@@ -172,13 +236,15 @@ def match(truth, pred, tol):
 def cmd_compare(a):
     cam = load_camera(a.camera)
     gt_lines = [l for l in (pathlib.Path(a.gt) / "gt" / "gt.txt").read_text().splitlines() if l.strip()]
-    truth, _ = detect(cam, gt_lines)
-    pred, diag = detect(cam, source_lines(a))
+    is_open = door_filter(a.door, frame_offset(a), cam["od"]["holgura"])
+    truth, _ = detect(cam, gt_lines, a.rule, is_open)
+    pred, diag = detect(cam, source_lines(a), a.rule, is_open)
     hits = match(truth, pred, a.tol)
     t, p = summary(truth), summary(pred)
     print(f"verdad (golden):  sube {t['sube']}  baja {t['baja']}")
-    print(f"job {a.job}:          sube {p['sube']}  baja {p['baja']}   "
-          f"(tracks que nacen/mueren en la puerta: {diag['nacen_o_mueren_en_la_puerta']})")
+    print(f"job {a.job}:          sube {p['sube']}  baja {p['baja']}   (regla {a.rule}; "
+          f"nacen en la puerta sin llegar al pasillo: {diag['nacen_en_puerta_sin_llegar']}, "
+          f"descartados por puerta cerrada: {diag['con_puerta_cerrada']})")
     for k in ("sube", "baja"):
         if t[k]:
             print(f"  error de conteo {k}: {p[k] - t[k]:+d} ({(p[k] - t[k]) / t[k]:+.0%})")
@@ -208,10 +274,37 @@ def cmd_selftest(_):
         ("curva doblada: en x=130 a media altura ya es pasillo", [(1, 180, 200), (2, 130, 200)], ["sube"]),
     ]
     ok = True
+    print("regla curvas")
     for name, pts, want in cases:
         got = [k for _, k in track_events(bent if name.startswith("curva") else cam, pts)]
         ok &= got == want
         print(f"{'OK  ' if got == want else 'FALLO'}  {name}" + ("" if got == want else f": {got} != {want}"))
+
+    # Origen–destino: d = 100 - x (zona de la puerta d <= 40, pasillo d >= 80).
+    # La puerta está abierta en los frames 100-199; cada caso empieza en `t0`.
+    cam["od"] = dict(OD_DEFAULTS, holgura=0)
+    is_open = lambda f: 100 <= f <= 199  # noqa: E731
+    at = lambda t0, xs: [(t0 + i, x, 100) for i, x in enumerate(xs)]  # noqa: E731
+    od_cases = [
+        ("nace en el umbral con la puerta abierta y llega al pasillo = sube", at(110, range(110, 0, -10)), ["sube"]),
+        ("nace en el andén y llega al pasillo = sube", at(110, range(180, 0, -10)), ["sube"]),
+        ("ya estaba en el umbral antes de abrirse y se va al pasillo = nada", at(90, range(110, 0, -5)), []),
+        ("de pie en el umbral sin llegar al pasillo = nada", at(110, [110, 105, 95, 100, 105]), []),
+        ("trozo que nace en el pasillo = nada", at(110, range(50, 0, -10)), []),
+        ("se rompe antes del pasillo = nada (subida perdida)", at(110, range(110, 50, -10)), []),
+        ("viene del pasillo y muere en el umbral con la puerta abierta = baja", at(110, range(0, 140, 10)), ["baja"]),
+        ("viene del pasillo y muere en el umbral con la puerta cerrada = nada", at(190, range(0, 140, 10)), []),
+        ("sube y se vuelve a bajar en el mismo track = dos", at(110, [110, 50, 0, 50, 120]), ["sube", "baja"]),
+        ("camina por el pasillo sin entrar en la zona de la puerta = nada", at(110, range(10, 60, 10)), []),
+    ]
+    print("regla origen–destino")
+    for name, pts, want in od_cases:
+        got = [k for _, k, g in od_events(cam, pts) if is_open(g)]
+        ok &= got == want
+        print(f"{'OK  ' if got == want else 'FALLO'}  {name}" + ("" if got == want else f": {got} != {want}"))
+    frames = [f for f, _, _ in od_events(cam, at(110, [110, 105, 95, 50, 0]))]
+    ok &= frames == [112]
+    print(f"{'OK  ' if frames == [112] else 'FALLO'}  el frame de la subida es el del cruce de la curva interior")
     sys.exit(0 if ok else 1)
 
 
@@ -222,6 +315,9 @@ def main():
         s = sub.add_parser(name)
         s.add_argument("--camera", required=True)
         s.add_argument("--api", default="http://track.torre")
+        s.add_argument("--rule", choices=("od", "curvas"), default="od")
+        s.add_argument("--door", help="JSON de intervalos de puerta abierta (frames del video)")
+        s.add_argument("--start", type=int, default=1, help="frame del video que es el frame 1 del MOT")
         if name == "events":
             src = s.add_mutually_exclusive_group(required=True)
             src.add_argument("--tracks", help="fichero MOT")
