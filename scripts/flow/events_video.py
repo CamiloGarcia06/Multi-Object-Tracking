@@ -6,14 +6,24 @@
 """C2 — video de las subidas y bajadas que cuenta events.py, para VER la regla.
 
 Sobre un tramo del video pinta las dos líneas de la puerta (exterior en rojo,
-interior en verde) y cada track con el lado en que lo tiene la regla:
+interior en verde) y cada track con su estado según la regla (`--rule`).
+
+Regla `od` (por defecto), por la distancia d a la curva interior:
+  - naranja : zona de la puerta (d <= zona_puerta): de aquí nace quien sube
+  - amarillo: entre la zona y el pasillo
+  - cian    : pasillo (d >= pasillo)
+
+Regla `curvas`:
   - naranja : FUERA (pasó la línea exterior hacia el andén)
   - amarillo: en el umbral, entre las dos líneas (conserva el lado que tenía)
   - cian    : DENTRO (pasó la línea interior hacia el pasillo)
   - gris    : lejos de la puerta (no cuenta para nada)
-Cuando un track cambia de lado sale el evento (SUBE / BAJA) encima de su caja y
-suben los contadores de arriba. Los eventos son exactamente los de events.py:
-se calculan sobre el track entero, no solo sobre el tramo.
+Cuando hay evento sale SUBE / BAJA encima de la caja y suben los contadores de
+arriba. Los eventos son exactamente los de events.py: se calculan sobre el track
+entero, no solo sobre el tramo.
+
+`--golden`: pinta las marcas del golden de eventos (anillo blanco, ±1 s). Con
+`--errors` (CSV de error_causes.py), las personas perdidas van en rojo con su causa.
 
 `--video` es el tramo ya recortado (frame 1 del fichero = `--start` del MOT):
   uv run scripts/flow/events_video.py --camera configs/cameras/videoTM_07.yaml \\
@@ -27,7 +37,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import events as E  # noqa: E402
 
 SCALE = 2
-COLOR = {E.OUTSIDE: "#f97316", None: "#facc15", E.INSIDE: "#22d3ee", "lejos": "#9ca3af"}
+COLOR = {E.OUTSIDE: "#f97316", None: "#facc15", E.INSIDE: "#22d3ee", "lejos": "#9ca3af",
+         "puerta": "#f97316", "umbral": "#facc15", "pasillo": "#22d3ee"}
+RING = 15  # frames antes y después de la marca del golden en que se ve el anillo
 FLASH = 30  # frames que se queda el letrero del evento
 
 
@@ -46,6 +58,16 @@ def timeline(cam, pts):
         states[f] = now
     assert events == E.track_events(cam, pts)
     return states, events
+
+
+def od_timeline(cam, pts, is_open):
+    """{frame: zona} y [(frame, tipo, puerta_abierta)] con la MISMA lógica que E.od_events."""
+    zone, aisle = cam["od"]["zona_puerta"], cam["od"]["pasillo"]
+    states = {}
+    for f, x, y in pts:
+        d = E.signed(cam, "inner", x, y)
+        states[f] = "puerta" if d <= zone else "pasillo" if d >= aisle else "umbral"
+    return states, [(f, k, is_open(g)) for f, k, g in E.od_events(cam, pts)]
 
 
 def video_info(path):
@@ -67,11 +89,27 @@ def main():
     p.add_argument("--out", required=True)
     p.add_argument("--speed", type=float, default=0.5, help="0,5 = a media velocidad")
     p.add_argument("--door", help="JSON con los intervalos [inicio, fin] de puerta abierta (frames del MOT)")
+    p.add_argument("--rule", choices=("od", "curvas"), default="od")
+    p.add_argument("--golden", help="CSV del golden de eventos: pinta las marcas")
+    p.add_argument("--errors", help="CSV de error_causes.py: las perdidas en rojo con su causa")
     a = p.parse_args()
 
     cam = E.load_camera(a.camera)
     door = json.loads(pathlib.Path(a.door).read_text()) if a.door else None
-    is_open = lambda f: door is None or any(lo <= f <= hi for lo, hi in door)  # noqa: E731
+    slack = cam["od"]["holgura"] if a.rule == "od" else 0
+    is_open = lambda f: door is None or any(lo - slack <= f <= hi + slack for lo, hi in door)  # noqa: E731
+    marks = collections.defaultdict(list)
+    if a.golden:
+        import csv
+        lost = {}
+        if a.errors:
+            lost = {(int(r["frame"]), r["direccion"]): r["causa"] for r in csv.DictReader(open(a.errors))}
+        for r in csv.DictReader(open(a.golden)):
+            if r["direccion"] in ("sube", "baja"):
+                g = int(r["frame"])
+                m = (g, float(r["x"]), float(r["y"]), r["direccion"], lost.get((g, r["direccion"])))
+                for f in range(g - RING, g + RING + 1):
+                    marks[f].append(m)
     status, body = E._http("GET", f"{a.api.rstrip('/')}/api/jobs/{a.job}")
     tracker = pathlib.Path(json.loads(body)["tracker"]).stem if status == 200 else "?"
     a.tracks, a.gt = None, None
@@ -79,12 +117,16 @@ def main():
     by_frame = collections.defaultdict(list)
     flashes, timelines = collections.defaultdict(list), {}
     for tid, pts in tracks.items():
-        states, evs = timeline(cam, pts)
+        if a.rule == "od":
+            states, evs = od_timeline(cam, pts, is_open)
+        else:
+            states, evs = timeline(cam, pts)
+            evs = [(f, k, is_open(f)) for f, k in evs]
         timelines[tid] = (pts, states)
         for f, x, y in pts:
             by_frame[f].append((tid, x, y))
-        for f, kind in evs:
-            flashes[f].append((tid, kind))
+        for f, kind, valid in evs:
+            flashes[f].append((tid, kind, valid))
 
     w, h, fps = video_info(a.video)
     if (w, h) != cam["size"]:
@@ -111,9 +153,20 @@ def main():
         d = ImageDraw.Draw(img)
         for key, col in (("outer", "#ef4444"), ("inner", "#22c55e")):
             d.line([S(x, y) for x, y in cam[key]], fill=col, width=4)
-        for tid, kind in flashes.get(f, []):
-            count[kind if is_open(f) else "ignorados"] += 1
-            recent.append((f, tid, kind, is_open(f)))
+        for tid, kind, valid in flashes.get(f, []):
+            count[kind if valid else "ignorados"] += 1
+            recent.append((f, tid, kind, valid))
+        for g, gx, gy, kind, cause in marks.get(f, []):
+            col = "#ef4444" if cause else "white"
+            r_ = 22 * SCALE
+            d.ellipse([gx * SCALE - r_, gy * SCALE - r_, gx * SCALE + r_, gy * SCALE + r_], outline=col, width=4)
+            txt = f"REAL {kind.upper()}" + (f" PERDIDA: {cause}" if cause else "")
+            l, t, r, b = d.textbbox((0, 0), txt, font=font, stroke_width=2)
+            tx = min(max(gx * SCALE - r_, 4), W - (r - l) - 4)  # que no se salga del cuadro
+            ty = gy * SCALE + r_ + 2
+            if ty + (b - t) > H - 20 * SCALE:
+                ty = gy * SCALE - r_ - (b - t) - 4
+            d.text((tx, ty), txt, fill=col, font=font, stroke_width=2, stroke_fill="black")
         for tid, b in boxes.get(f, {}).items():
             pts, states = timelines[tid]
             col = COLOR[states.get(f, "lejos")]
@@ -133,7 +186,7 @@ def main():
                 d.rectangle([l - 4, t - 2, r + 4, bb + 2], fill=col)
                 d.text((x0, y0), txt, fill="black", font=big)
         d.rectangle([0, 0, W, 26 * SCALE], fill="black")
-        d.text((8, 4 * SCALE), f"job #{a.job} {tracker} | frame {f} | SUBE {count['sube']}  BAJA {count['baja']}"
+        d.text((8, 4 * SCALE), f"job #{a.job} {tracker} ({a.rule}) | frame {f} | SUBE {count['sube']}  BAJA {count['baja']}"
                + (f"  ignorados {count['ignorados']}" if door else ""), fill="white", font=big)
         if door:
             txt, col = ("PUERTA ABIERTA", "#22c55e") if is_open(f) else ("PUERTA CERRADA", "#ef4444")
@@ -141,8 +194,11 @@ def main():
             d.rectangle([W - (r - l) - 24, 30 * SCALE, W - 8, 30 * SCALE + (bb - t) + 12], fill=col)
             d.text((W - (r - l) - 16, 30 * SCALE + 4), txt, fill="black", font=big)
         d.rectangle([0, H - 18 * SCALE, W, H], fill="black")
-        d.text((8, H - 16 * SCALE), "rojo: curva exterior  verde: interior  |  naranja fuera  amarillo umbral  "
-               "cian dentro  gris lejos", fill="white", font=font)
+        legend = ("naranja zona puerta  amarillo entre  cian pasillo" if a.rule == "od"
+                  else "naranja fuera  amarillo umbral  cian dentro  gris lejos")
+        if marks:
+            legend += "  |  anillo: golden (rojo = perdida)"
+        d.text((8, H - 16 * SCALE), f"rojo: curva exterior  verde: interior  |  {legend}", fill="white", font=font)
         enc.stdin.write(img.tobytes())
     enc.stdin.close()
     enc.wait()

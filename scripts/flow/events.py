@@ -221,16 +221,33 @@ def cmd_events(a):
     print(json.dumps({**summary(events), **diag}, ensure_ascii=False), file=sys.stderr)
 
 
+def pairs(truth, pred, tol):
+    """Parejas (i_verdad, j_predicción) de la misma dirección a ±tol frames.
+
+    En una sola dimensión, recorrer las dos listas ordenadas por frame y emparejar
+    lo primero compatible da el MÁXIMO de parejas; uno voraz por orden de la verdad
+    deja que un evento le "robe" la pareja al siguiente.
+    """
+    out = []
+    for kind in {e[2] for e in truth}:
+        t = sorted((e[0], i) for i, e in enumerate(truth) if e[2] == kind)
+        p = sorted((e[0], j) for j, e in enumerate(pred) if e[2] == kind)
+        i = j = 0
+        while i < len(t) and j < len(p):
+            if p[j][0] < t[i][0] - tol:
+                j += 1
+            elif p[j][0] > t[i][0] + tol:
+                i += 1
+            else:
+                out.append((t[i][1], p[j][1]))
+                i += 1
+                j += 1
+    return out
+
+
 def match(truth, pred, tol):
-    """Emparejamiento voraz por dirección y cercanía en frames. Devuelve aciertos."""
-    used, hits = set(), 0
-    for f, _, kind in truth:
-        best = min(((abs(g - f), j) for j, (g, _, k) in enumerate(pred)
-                    if k == kind and j not in used and abs(g - f) <= tol), default=None)
-        if best:
-            used.add(best[1])
-            hits += 1
-    return hits
+    """Aciertos: número de parejas de `pairs`."""
+    return len(pairs(truth, pred, tol))
 
 
 def cmd_compare(a):
