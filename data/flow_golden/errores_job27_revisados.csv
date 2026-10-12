@@ -1,0 +1,24 @@
+parada,frame,direccion,x,y,causa,track,revision,nota,conf_mediana_cerca
+23806,23846,sube,547.1,244.5,intermitente,,S,,0.59
+23806,23886,sube,508.3,454.2,corto,689,I,,0.45
+22018,22031,baja,527.5,433.3,nace-tarde,629,I,,0.85
+22018,22049,baja,526.5,353.8,intermitente,,S,,0.49
+22018,22066,baja,518.5,439.3,nace-tarde,636,I,,0.79
+22018,22077,baja,537.4,239.5,tracker,,S,,0.25
+22018,22085,baja,543.9,420.9,nace-tarde,644,S,,0.7
+22018,22098,baja,511.1,433.8,nace-tarde,647,S,,0.55
+22018,22104,baja,559.3,337.9,nace-tarde,649,S,,0.86
+22018,22117,baja,564.2,318.5,nace-tarde,649,V,,0.74
+22018,22135,baja,510.1,436.3,nace-tarde,653,I,,0.9
+5347,5367,sube,522.0,198.3,corto,122,S,,0.92
+5347,5384,sube,539.4,247.5,tiempo,125,S,,0.9
+5347,5392,sube,537.9,227.6,corto,128,C,,0.86
+5347,5396,sube,545.4,349.3,doble,131,I,,0.89
+5347,5401,sube,535.4,280.3,corto,128,S,,0.79
+5347,5416,sube,541.9,289.2,doble,131,V,,0.91
+12673,12678,baja,549.3,321.0,nace-tarde,279,I,,0.83
+12673,12703,baja,565.2,316.0,intermitente,,S,,0.87
+15940,15946,baja,515.5,409.5,detector,,V,,
+15940,15967,baja,546.3,314.0,detector,,V,,
+15940,15984,baja,552.3,311.1,nace-tarde,481,V,,0.78
+15940,16026,sube,513.6,429.3,corto,490,C,también I: una persona entra con caja blanca y su ID cambia,0.9
