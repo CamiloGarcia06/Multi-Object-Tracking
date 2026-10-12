@@ -19,3 +19,29 @@ door:
 
 # Un punto del pasillo: fija qué lado de cada curva es "dentro".
 inside: [200, 300]
+
+# Regla origen–destino (events.py --rule od). d = px más allá de la curva interior
+# hacia el pasillo. Sube: nace con d <= zona_puerta con la puerta abierta y llega a
+# d >= pasillo. Baja: al revés. Ajustados el 2026-10-12 con tm07_a: el detector ve las
+# cabezas ya en el umbral (nacen entre -60 y +27), y los trozos de quien ya iba dentro
+# nacen a +100 o más. `holgura`: frames de margen alrededor de cada intervalo de puerta.
+od:
+  zona_puerta: 40
+  pasillo: 80
+  holgura: 15
+
+# Puerta abierta (scripts/flow/door.py). Se compara el mapa de bordes de la zona de la
+# puerta con el de la puerta cerrada (NCC): cerrada 0,6–0,95, abierta 0,05–0,2.
+# Ajustado el 2026-10-11 a mano sobre este video; revisado por Camilo el 2026-10-12:
+# 7 de 8 intervalos bien, 1.054–1.579 falso (un bus rojo pasando, visto por el vidrio).
+door_open:
+  fps: 30
+  crop: [430, 150, 170, 300]   # x, y, ancho, alto (px del video) — cubre las hojas
+  scale: [34, 60]              # se reduce a esto antes de comparar
+  step: 3                      # una muestra cada 3 frames (10 por segundo)
+  closed_frames: [1, 301, 1801, 2101, 9351, 10501, 12901, 13201]
+  smooth: 10                   # mediana móvil, en muestras (1 s)
+  threshold: 0.35              # abierta si la similitud baja de aquí
+  min_frames: 90               # tramos de menos de 3 s no son una parada
+  exclude:
+    - [1054, 1579]             # falso: bus rojo fuera (revisado 2026-10-12)
