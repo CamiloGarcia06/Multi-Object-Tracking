@@ -1,0 +1,21 @@
+# C1 — geometría de la cámara de videoTM_07 (cenital, puerta a la derecha del frame).
+# Píxeles del video original; `size` evita aplicarla a otra resolución.
+size: [640, 480]
+
+# La puerta son dos curvas que cruzan la imagen de arriba abajo, trazadas por Camilo
+# el 2026-10-11 sobre el frame 23940 siguiendo la curvatura del ojo de pez. Van por
+# donde pasan las CABEZAS: andén → pasillo cruzando las dos = sube (IN); al revés = baja.
+#
+# Historia: (1) la puerta como zona contaba como subida a quien estaba de pie junto a
+# ella; (2) dos líneas en el suelo con puntas: las cabezas, más altas, las rodeaban.
+#
+# Margen medido con el #18 (sin ROI) lejos de toda parada, cuando todas las cabezas son
+# de pasajeros dentro: 0 de 32.893 cajas pasan la curva exterior; abajo llegan a x≈480,
+# pegadas a la interior. Hay una detección falsa fija en el vidrio (x≈528, y≈250), entre
+# las dos curvas: nunca sale del umbral, no cuenta nada.
+door:
+  inner: [[476, 0], [498, 70], [516, 190], [518, 310], [508, 390], [484, 454], [462, 474]]
+  outer: [[516, 0], [538, 70], [554, 190], [557, 310], [548, 390], [524, 446], [498, 474]]
+
+# Un punto del pasillo: fija qué lado de cada curva es "dentro".
+inside: [200, 300]
