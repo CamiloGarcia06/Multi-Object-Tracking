@@ -1,0 +1,28 @@
+descripcion: corrección de sesgo del conteo (scripts/flow/calibrate.py)
+estimado_en:
+  golden:
+  - data/flow_golden/videoTM_03.csv
+  - data/flow_golden/videoTM_07.csv
+  sistema:
+  - data/flow_eval/val03/ev_door2.csv
+  - data/flow_eval/v7/ev27_puerta_nueva.csv
+  aperturas: 20
+  fecha: '2026-10-12'
+min_events: 10
+direcciones:
+  sube:
+    factor: 0.6765
+    ic95:
+    - 0.4688
+    - 0.9375
+    fuente: propia
+    real_validacion: 34
+    contado_validacion: 23
+  baja:
+    factor: 0.6154
+    ic95:
+    - 0.5179
+    - 0.7317
+    fuente: propia
+    real_validacion: 65
+    contado_validacion: 40

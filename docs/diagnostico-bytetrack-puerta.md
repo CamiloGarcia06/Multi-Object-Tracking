@@ -227,3 +227,31 @@ de la ronda 7, no mejoran. Lo único que mejoró fue la puerta (`door.py`, unos 
 puntos). El error que queda, unos −38 %, es **sistemático y estable**:
 - el recall es 0,59–0,62 en los dos videos y en las dos direcciones;
 - la precisión es 0,95–1,00.
+
+## Corrección de sesgo del conteo (12-10 noche)
+
+`scripts/flow/calibrate.py`. Como el sistema pierde una fracción estable de personas
+y casi no cuenta de más, el total se corrige así:
+
+- **factor:** `factor = Σ contado / Σ real` por dirección, estimado en las aperturas
+  de calibración;
+- **conteo corregido:** `corregido = contado / factor`;
+- **incertidumbre:** IC95 por bootstrap de APERTURAS.
+
+Regla fijada de antemano: un factor por dirección cuando hay al menos 10 eventos
+reales; si no, se usa el factor conjunto de las direcciones que sí llegan.
+
+1. **Ajustado solo en el 03 y aplicado al 07, que no intervino:** factor 0,607
+   (IC95 0,375–0,75). El 07 pasa de −38 %/−38 % a **+3 % / +2 %**. El punto es
+   bueno, pero el intervalo es ancho: solo hay 7 paradas, con las bajadas
+   concentradas en 3 de ellas.
+2. **Factor final, ajustado en 03 + 07** (20 aperturas, 99 eventos):
+   - subidas: 0,676 (IC95 0,47–0,94);
+   - bajadas: 0,615 (IC95 0,52–0,73).
+
+   Queda en `configs/calibracion.yaml`. Sobre los mismos datos (en muestra, no es
+   evaluación) da 07 −8 % / +1 % y 03 bajadas −1 %.
+
+**La prueba (02 y 03(1)) no se ha tocado:** es la que dice si el factor aguanta en
+otro bus y con congestión alta. El sistema que se reporta es el #27 + `door.py`
+corregido + este factor.
