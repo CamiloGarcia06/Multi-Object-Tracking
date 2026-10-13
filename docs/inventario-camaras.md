@@ -195,3 +195,42 @@ Sistema congelado: #27 + `door.py` + `configs/calibracion.yaml`. Tracks en
   0,85/0,92. Es la limitación a declarar: el detector de puerta por bordes no
   funciona con oclusión total.
 - Queda la segunda prueba, el **03(1)**: otro bus, con la puerta a la izquierda.
+
+## Geometría del 03(1), la segunda prueba (12-10 noche)
+
+**Otro bus y otro montaje: la puerta está a la izquierda.** El umbral cae en x ≈ 215,
+casi en espejo del 07. Todo se fijó mirando frames, sin el golden:
+- **Curvas de ingreso y egreso:** las trazó Camilo sobre el frame 1.801, más hacia el
+  marco exterior de la puerta que el espejo del 07 que propuse yo. Se ajustaron como
+  **parábolas verticales** de borde a borde: la interior tiene el vértice en x = 70 y
+  la exterior en x = 46, con un residuo máximo de 2,8 y 8,2 px respecto a su trazo.
+  Están en `configs/cameras/videoTM_03_1.yaml`.
+- **ROI:** todo lo que queda a la izquierda de la línea de Camilo (x ≈ 527 a media
+  altura), en `configs/cameras/roi_videoTM_03_1.json`. Incluye el andén; la regla
+  `od` separa a quien cruza de quien solo espera.
+- **`door_open`:** recorte en espejo del 07, [40, 150, 170, 300], con
+  `closed_frames` de los minutos 1–9, cuando el bus va vacío.
+
+**Aperturas vistas en la revisión:**
+- **Reales y visibles: 4**, en 2.908, 5.500, 9.925 y 22.336, con poca gente.
+- **Falsa: 20.755–21.589.** El bus va vacío; cambia la luz de una pared de estación
+  vista por el vidrio.
+- **Desde 23.218, bus lleno hasta el final:** sube muchísima gente de golpe y la
+  puerta queda tapada, como en el 02.
+
+**Golden por decidir:**
+- completo: las 4 aperturas más el tramo 23.150–27.000;
+- reducido: las 4 aperturas más la gran subida.
+
+## Montajes y alcance (pendiente de decidir)
+
+En el Drive de Camilo hay `Bus/` y `Station/`, cada una con cuatro ángulos:
+DoubleDoorCameraLeft, DoubleDoorCameraRight, SingleDoorMiddle y SingleDoorRear(RGBD).
+
+- **La geometría va por MONTAJE, no por video.** El 07, el 03 y el 02 comparten la
+  suya. Cada montaje nuevo cuesta unos 15 minutos de Camilo para validar curvas y ROI.
+- **Golden:** basta uno de eventos de prueba por montaje que se quiera afirmar. No
+  hacen falta goldens de tracking.
+- **Station es otra escena** (un andén): la regla `od` está pensada para la puerta del
+  bus. Lo propuesto es dejarla como trabajo futuro.
+- Falta cruzar qué carpeta corresponde a cada uno de los 24 videos.
