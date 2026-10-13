@@ -20,6 +20,8 @@ cuánto se parecen los bordes de cada frame a los de la puerta cerrada:
   5. Mediana móvil de `smooth` muestras, umbral `threshold` (abierta si la
      similitud es menor) y tramos de al menos `min_frames`.
   6. `exclude`: intervalos revisados a mano y descartados (falsos positivos).
+  7. `min_brightness`: si el recorte está casi negro (túnel) no hay bordes que
+     comparar y la muestra cuenta como cerrada.
 
 Límite: no sabe qué es una puerta, solo que los bordes de la zona cambiaron.
 Lo que se ve a través del vidrio (un bus rojo fuera) o gente de pie delante
@@ -77,13 +79,16 @@ def ncc(stack, ref):
 
 
 def similarity(cfg, samples):
-    """Similitud de cada muestra con la puerta cerrada."""
+    """Similitud de cada muestra con la puerta cerrada. Las muestras casi negras (túnel:
+    brillo medio < `min_brightness`) no tienen bordes que comparar: cuentan como cerradas."""
     step = cfg["step"]
     g = edges(samples)
     idx = [(f - 1) // step for f in cfg["closed_frames"]]
     if max(idx) >= len(g):
         sys.exit(f"closed_frames: el video solo tiene {len(g) * step} frames")
-    return ncc(g, np.median(g[idx], 0))
+    sim = ncc(g, np.median(g[idx], 0))
+    sim[samples.mean((1, 2)) < cfg.get("min_brightness", 0)] = 1.0
+    return sim
 
 
 def intervals(cfg, sim):
@@ -126,8 +131,8 @@ def cmd_detect(a):
 
 def cmd_selftest(_):
     """Video sintético: marcos verticales fijos (cerrada) que desaparecen (abierta)."""
-    cfg = {"scale": [34, 60], "step": 3, "smooth": 10, "threshold": 0.35, "min_frames": 90,
-           "closed_frames": [1, 31, 61], "exclude": []}
+    cfg = {"scale": [34, 60], "step": 3, "smooth": 10, "threshold": 0.35, "min_frames": 45,
+           "min_brightness": 40, "closed_frames": [1, 31, 61], "exclude": []}
     rng = np.random.default_rng(0)
     closed = np.full((60, 34), 80.0)
     closed[:, 8:10] = closed[:, 22:24] = 200  # marcos de los vidrios
@@ -136,6 +141,7 @@ def cmd_selftest(_):
     frames[200:300] = rng.normal(120, 25, (100, 60, 34))  # abierta: sin marcos, andén con textura
     frames[400:405] = rng.normal(120, 25, (5, 60, 34))  # alguien pasa 0,5 s: no es apertura
     frames[450:452, 20:40] = 255  # destello en dos muestras
+    frames[500:540] = rng.normal(8, 3, (40, 60, 34))  # túnel 4 s: oscuro, sin marcos
     sim = similarity(cfg, frames)
     got = intervals(cfg, sim)
     ok = True
@@ -145,6 +151,7 @@ def cmd_selftest(_):
         ("acaba donde se cierra (±1 s)", got and abs(got[0][1] - (3 * 299 + 1)) <= 30),
         ("cerrada se parece a la referencia (>0,6)", np.median(sim[:200]) > 0.6),
         ("abierta no se parece (<0,35)", np.median(sim[200:300]) < 0.35),
+        ("el túnel no es apertura", all(b < 3 * 500 or a_ > 3 * 540 for a_, b in got)),
         ("exclude quita un intervalo", intervals({**cfg, "exclude": got}, sim) == []),
     ]
     for name, cond in checks:
