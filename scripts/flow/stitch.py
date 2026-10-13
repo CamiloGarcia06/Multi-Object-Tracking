@@ -17,6 +17,11 @@ que nace después se unen (B pasa a llamarse A) si:
 Emparejamiento voraz por distancia/hueco, uno a uno, iterado hasta que no cambia
 (una cadena A -> B -> C se une entera).
 
+3d — con `--feats` (de reid_feats.py) además hace falta que el final de A se PAREZCA al
+inicio de B: distancia coseno <= --max-dist con el descriptor --desc (osnet | hsv), y
+el voraz ordena por esa distancia. Es lo que le faltaba a la 3b, que encadenaba la cola
+de personas que bajan en fila. --max-dist se ajusta en videoTM_03 (validación).
+
 Parámetros FIJADOS A PRIORI (no ajustados con el golden de videoTM_07, que es de
 evaluación): max-gap 30 (huecos medidos de 8–25 f), speed 15 px/f (cabezas de
 ~51 px que se mueven 10–30 px/f en la puerta), r0 20, r-max 250.
@@ -46,7 +51,7 @@ def velocity(pts, end, k=5):
     return np.array([x1 - x0, y1 - y0]) / max(f1 - f0, 1)
 
 
-def links(tracks, a):
+def links(tracks, a, app=None):
     cand = []
     for ta, pa in tracks.items():
         fa, xa, ya, _ = pa[-1]
@@ -62,7 +67,12 @@ def links(tracks, a):
             vb = velocity(pb, end=False)
             if np.linalg.norm(va) > a.min_move and np.linalg.norm(vb) > a.min_move and va @ vb <= 0:
                 continue
-            cand.append((d / gap, ta, tb))
+            if app is None:
+                cand.append((d / gap, ta, tb))
+                continue
+            dist = 1.0 - float(app["fin"][ta] @ app["ini"][tb])
+            if dist <= a.max_dist:
+                cand.append((dist, ta, tb))
     cand.sort()
     used_a, used_b, out = set(), set(), {}
     for _, ta, tb in cand:
@@ -72,17 +82,25 @@ def links(tracks, a):
     return out
 
 
-def stitch(lines, a):
+def load_feats(path, desc):
+    z = np.load(path)
+    ids = [int(t) for t in z["ids"]]
+    return {e: dict(zip(ids, z[f"{desc}_{e}"])) for e in ("ini", "fin")}
+
+
+def stitch(lines, a, app=None):
     tracks = load(lines)
     total = 0
     while True:
-        m = links(tracks, a)
+        m = links(tracks, a, app)
         if not m:
             break
         total += len(m)
         for tb, ta in sorted(m.items(), key=lambda kv: -tracks[kv[0]][0][0]):
             if tb in tracks and ta in tracks:
                 tracks[ta] = sorted(tracks[ta] + tracks.pop(tb))
+                if app is not None:
+                    app["fin"][ta] = app["fin"][tb]  # la cadena termina como termina B
     rows = []
     for t, pts in tracks.items():
         for f, *_, l in pts:
@@ -102,6 +120,12 @@ def cmd_selftest(a):
     assert n == 1 and ids == {1, 3}, (n, ids)
     a2 = argparse.Namespace(**{**vars(a), "max_gap": 5})
     assert stitch(lines, a2)[1] == 0  # el hueco de 12 f supera max-gap
+    # 3d: con apariencia, A y B distintos (coseno 0) no se unen aunque cuadre el resto
+    e = np.eye(3)
+    a3 = argparse.Namespace(**{**vars(a), "max_dist": 0.3})
+    same = {"ini": {1: e[0], 2: e[0], 3: e[2]}, "fin": {1: e[0], 2: e[0], 3: e[2]}}
+    diff = {"ini": {1: e[0], 2: e[1], 3: e[2]}, "fin": {1: e[0], 2: e[1], 3: e[2]}}
+    assert stitch(lines, a3, same)[1] == 1 and stitch(lines, a3, diff)[1] == 0
     print("selftest OK")
 
 
@@ -113,10 +137,14 @@ def main():
     p.add_argument("--r0", type=float, default=20.0)
     p.add_argument("--r-max", type=float, default=250.0)
     p.add_argument("--min-move", type=float, default=2.0)
+    p.add_argument("--feats", help="npz de reid_feats.py (3d)")
+    p.add_argument("--desc", default="osnet", choices=["osnet", "hsv"])
+    p.add_argument("--max-dist", type=float, default=0.3, help="distancia coseno máxima (3d)")
     a = p.parse_args()
     if a.mot == "selftest":
         return cmd_selftest(a)
-    out, n = stitch([l for l in open(a.mot) if l.strip()], a)
+    app = load_feats(a.feats, a.desc) if a.feats else None
+    out, n = stitch([l for l in open(a.mot) if l.strip()], a, app)
     sys.stdout.write("\n".join(out) + "\n")
     print(f"uniones: {n}", file=sys.stderr)
 

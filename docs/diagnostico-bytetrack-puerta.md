@@ -190,3 +190,40 @@ se reproducen: golden 1,68 y `dets.npy` igual.
 **Lectura:** 188 frames de puerta (+15 % de datos) no cambian el detector de forma
 medible. Las cabezas que se pierden al cruzar la puerta no se arreglan con más
 ejemplos de lo mismo con esta receta. Sigue sin cambiar el modelo desplegado.
+
+## 3d, unir trozos por apariencia (12-10 noche): negativo
+
+`scripts/flow/reid_feats.py` (torre) calcula, por track, el descriptor de sus 5
+primeras y sus 5 últimas cajas sobre un recorte ×2 (cabeza más hombros). Prueba dos:
+OSNet x0.25 (MSMT17, el ReID del #28) y un histograma HSV. `stitch.py --feats`
+añade a la compuerta de la 3b que la distancia coseno entre el final de A y el
+inicio de B sea <= `--max-dist`. El umbral se barrió en el **03** (validación) y se
+comprobó en el 07, sobre la línea base nueva con `door.py` corregido (−38 %).
+
+| | 03 bajadas (28) | 07 subidas (32) | 07 bajadas (37) |
+|---|---|---|---|
+| sin unir (#27) | −39 % | −38 % | −38 % |
+| OSNet <= 0,2 (5 / 13 uniones) | −39 % | −38 % | −38 % |
+| OSNet <= 0,25 | −43 % | −34 % | −46 % |
+| HSV <= 0,15 | −43 % | −41 % | −41 % |
+| sin umbral (3b) | −46 % | | |
+
+Ningún umbral mejora: es neutro con el más estricto y peor al relajarlo.
+
+**Por qué** (`error_causes.py` sobre las dos líneas base): 9 de las 11 bajadas
+perdidas del 03, y 11 de las 16 del 07, son `nace-tarde`. El último trozo de la
+persona dura de 2 a 11 frames y nace ya en la puerta (d < 65 px), así que nunca
+"viene del pasillo". Su trozo anterior existe, pero:
+1. **La apariencia no discrimina.** Al trozo anterior correcto lo separa una
+   distancia OSNet de 0,25–0,40; a los equivocados de la misma parada, 0,18–0,45.
+   Desde arriba, cabeza y hombros de la gente en cola se parecen, y OSNet se
+   entrenó con cuerpos enteros vistos de lado.
+2. **Los saltos son grandes.** De 80 a 200 px entre trozos, al bajar el escalón y
+   en el borde del ojo de pez. Una compuerta así de ancha atrapa a la persona de
+   detrás (lo que ya pasaba en la 3b).
+
+**Balance del Bloque C a nivel de tracker:** 3a, 3b, 3c y 3d, más el reentrenamiento
+de la ronda 7, no mejoran. Lo único que mejoró fue la puerta (`door.py`, unos 15
+puntos). El error que queda, unos −38 %, es **sistemático y estable**:
+- el recall es 0,59–0,62 en los dos videos y en las dos direcciones;
+- la precisión es 0,95–1,00.
