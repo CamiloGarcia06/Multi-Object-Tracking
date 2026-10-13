@@ -167,3 +167,26 @@ tal cual es el mejor de lo probado. Lo que queda:
 - **3d, solo si hace falta**: unir trozos con apariencia (embeddings OSNet por trozo).
   Que el ReID no aportara dentro del tracker no lo descarta para esto, que es otro
   uso. Se mediría en el golden de otra cámara (tarea 6), no aquí.
+
+## Ronda 7 del detector (tarea 9, 12-10 noche): no mejora
+
+`yolo26x-v7` = la receta del campeón (yolo26x.pt, 80 épocas, batch 8, 640, semilla 0)
+sobre `bus_head_v7`: v5_min5 más 188 frames de puerta minados (`mine_door.py`) y
+corregidos en CVAT. Se compara con el campeón en las mismas condiciones; los controles
+se reproducen: golden 1,68 y `dets.npy` igual.
+
+| | P | R | MAE | sesgo | video02 | Tabla I subidas | Tabla I bajadas |
+|---|---|---|---|---|---|---|---|
+| campeón yolo26x-min5 | 0,926 | 0,752 | 1,68 | −1,58 | 1,89 | −35 % | −41 % |
+| ronda 7 yolo26x-v7 | 0,901 | 0,766 | 1,62 | −1,26 | 1,92 | −39 % | −45 % |
+
+- **Golden:** diferencia pareada −0,05 por imagen (IC95 [−0,26; 0,15], Wilcoxon
+  p = 0,73; gana 43, empata 62, pierde 46). No es distinguible del campeón. El recall
+  sube un poco y la precisión baja. Mejora en v16 y S08, cámaras ya vistas en
+  entrenamiento. No mejora en video02, la única nunca vista.
+- **Tabla I:** una subida y una bajada menos. Son ±1 evento en 52, dentro del ruido
+  de una semilla.
+
+**Lectura:** 188 frames de puerta (+15 % de datos) no cambian el detector de forma
+medible. Las cabezas que se pierden al cruzar la puerta no se arreglan con más
+ejemplos de lo mismo con esta receta. Sigue sin cambiar el modelo desplegado.
