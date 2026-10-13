@@ -144,3 +144,54 @@ Sistema #27 (campeón + ByteTrack + regla od) sobre los dos goldens:
 - **Con la puerta corregida, el error queda en torno a −38 % en los dos videos y en
   las dos direcciones.** Es la nueva línea base. Lo que queda son pérdidas del
   detector de cabezas y del tracker, no de la puerta.
+
+## Golden de PRUEBA: videoTM_02 (12-10 noche)
+
+**Mismo montaje que el 07 y el 03** (curvas superpuestas sobre un frame vacío). Se
+usan `configs/cameras/videoTM_02.yaml` y la geometría del 07, sin reajustar. Solo
+cambian los `closed_frames`, tomados de la segunda mitad, que va vacía.
+
+**`door.py` (congelado) falla con el bus lleno.** En los primeros ~3.400 frames la
+gente tapa la puerta, la similitud se queda en ≈0,3 y marca 15 "aperturas", la
+mayoría falsas. Fuera de ese tramo marca un falso más en 17.518 (un bus rojo
+fuera). No se reajusta: el 02 es prueba, y ese fallo cuenta contra el sistema.
+
+**Aperturas reales, revisadas a ojo** (las caídas profundas de la similitud, < 0,2,
+más los frames completos): 64–178, 901–979, 3.268–3.397, 9.511–9.664,
+11.194–11.434, 12.361–12.457, 14.503–14.584 y 16.264–16.390. Entre 179 y 900 la
+puerta no se ve (gente apretujada, mucho movimiento) y puede seguir abierta, así que
+ese tramo va en el primer job con la cabecera "puerta: no se ve". La tarea de CVAT
+tiene 7 jobs y 2.587 imágenes, en `data/cvat_import/eventos_videoTM_02/` de la torre.
+
+**Para que los falsos de `door.py` cuenten**, al construir el CSV se añaden como
+paradas sin eventos (`ninguno`) los tramos con la puerta verificada como cerrada:
+1.100–3.145 (escena quieta, gente apoyada en la puerta) y 17.518–17.578. Si no,
+`eval_flow` no vería los eventos falsos que el sistema cuente ahí.
+
+**Limitación:** entre 3.400 y 9.500 el bus sigue lleno y no hay ninguna caída de la
+señal. Si hubo una apertura totalmente tapada, falta en el golden y en el sistema.
+
+### Resultado de PRUEBA en el 02 (12-10 noche, evaluado una sola vez)
+
+Camilo anotó la tarea 9 de CVAT (jobs 35–41). El job 35 incluye una segunda
+apertura (902–976); de 1.040 a 1.160 la puerta está cerrada, verificado en un job
+de complemento. `data/flow_golden/videoTM_02.csv` tiene **59 eventos (18 subidas,
+41 bajadas)** en 8 aperturas, más 3 paradas cerradas sin eventos (300–780,
+1.160–3.145 y 17.518–17.578), donde `door.py` da falsos.
+
+Sistema congelado: #27 + `door.py` + `configs/calibracion.yaml`. Tracks en
+`data/flow_eval/test02/base.txt`.
+
+| 02 (congestión alta) | Real | Contado | Error | Recall | Precisión | Corregido (IC95) | Error corregido |
+|---|---|---|---|---|---|---|---|
+| Subidas | 18 | 13 | −28 % | 0,61 | 0,85 | 19,2 (13,9–27,7) | **+7 %** |
+| Bajadas | 41 | 25 | −39 % | 0,56 | 0,92 | 40,6 (34,2–48,3) | **−1 %** |
+
+- **El factor aguanta con congestión alta.** El recall (0,56–0,61) es el mismo que
+  en el 03 y el 07, y el conteo real cae dentro del IC95 en las dos direcciones.
+- **Primeros falsos positivos (3), y todos vienen de `door.py`.** Son 1 subida en
+  300–780 y 1 subida y 1 bajada en 1.160–3.145: tramos en que el bus va lleno, la
+  gente tapa la puerta cerrada y `door.py` la da por abierta. Bajan la precisión a
+  0,85/0,92. Es la limitación a declarar: el detector de puerta por bordes no
+  funciona con oclusión total.
+- Queda la segunda prueba, el **03(1)**: otro bus, con la puerta a la izquierda.

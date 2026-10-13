@@ -6,6 +6,9 @@ del video contado desde 1 (como el MOT), con las curvas de la puerta pintadas (i
 verde, exterior roja) y una cabecera "frame N PUERTA ABIERTA/cerrada". Etiquetas de
 punto `sube` / `baja` / `raro` (con nota), sin pre-anotar.
 
+`--dudosas`: tramos donde la puerta no se ve (bus lleno, gente tapándola). La cabecera
+dice "puerta: no se ve" y el tramo se une en un solo job con las aperturas que toca.
+
 Las aperturas se pasan A MANO (`--aperturas`), revisadas a ojo, y NO salen de door.py: así
 el golden no depende del detector de puerta que se evalúa. Cada job cubre la apertura
 con `--margen` frames antes y después.
@@ -36,14 +39,23 @@ def main():
     ap.add_argument("--camera", required=True)
     ap.add_argument("--video", required=True)
     ap.add_argument("--aperturas", required=True, help="a-b,c-d,... en frames contados desde 1")
+    ap.add_argument("--dudosas", default="", help="a-b,...: tramos donde no se ve la puerta (cabecera '¿puerta?')")
     ap.add_argument("--margen", type=int, default=60)
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
     door = yaml.safe_load(open(a.camera))["door"]
     curves = [(np.array(door["inner"], np.int32), (0, 200, 0)), (np.array(door["outer"], np.int32), (0, 0, 220))]
-    opens = [tuple(map(int, r.split("-"))) for r in a.aperturas.split(",")]
-    jobs = [(max(1, s - a.margen), e + a.margen) for s, e in opens]
+    spans = lambda txt: [tuple(map(int, r.split("-"))) for r in txt.split(",") if r]
+    opens, unsure = spans(a.aperturas), spans(a.dudosas)
+    # cada job cubre una apertura; un tramo dudoso pegado a aperturas las junta en un job
+    merged = []
+    for s, e in sorted(opens + unsure):
+        if merged and s <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    jobs = [(max(1, s - a.margen), e + a.margen) for s, e in merged]
     out = Path(a.out)
     (out / "img").mkdir(parents=True, exist_ok=True)
 
@@ -58,9 +70,12 @@ def main():
             for pts, color in curves:
                 cv2.polylines(im, [pts], False, color, 1, cv2.LINE_AA)
             is_open = any(s <= n <= e for s, e in opens)
-            text = f"frame {n} " + ("PUERTA ABIERTA" if is_open else "puerta cerrada")
+            hidden = not is_open and any(s <= n <= e for s, e in unsure)
+            state = "PUERTA ABIERTA" if is_open else "puerta: no se ve" if hidden else "puerta cerrada"
+            text = f"frame {n} {state}"
             (w, h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            cv2.rectangle(im, (0, 0), (w + 6, h + 8), (40, 140, 40) if is_open else (60, 60, 60), -1)
+            color = (40, 140, 40) if is_open else (0, 140, 200) if hidden else (60, 60, 60)
+            cv2.rectangle(im, (0, 0), (w + 6, h + 8), color, -1)
             cv2.putText(im, text, (3, h + 3), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
             name = f"f{n:06d}.jpg"
             cv2.imwrite(str(out / "img" / name), im, [cv2.IMWRITE_JPEG_QUALITY, 95])
