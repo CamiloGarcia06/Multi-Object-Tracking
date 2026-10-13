@@ -42,6 +42,7 @@ door_open:
   closed_frames: [1, 301, 1801, 2101, 9351, 10501, 12901, 13201]
   smooth: 10                   # mediana móvil, en muestras (1 s)
   threshold: 0.35              # abierta si la similitud baja de aquí
-  min_frames: 90               # tramos de menos de 3 s no son una parada
+  min_frames: 45               # 1,5 s: hay aperturas reales de 2–3 s (03 y 07, revisadas el 12-10)
+  min_brightness: 40           # recorte casi negro (túnel) = cerrada
   exclude:
     - [1054, 1579]             # falso: bus rojo fuera (revisado 2026-10-12)
