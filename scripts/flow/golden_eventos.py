@@ -8,6 +8,8 @@ punto `sube` / `baja` / `raro` (con nota), sin pre-anotar.
 
 `--dudosas`: tramos donde la puerta no se ve (bus lleno, gente tapándola). La cabecera
 dice "puerta: no se ve" y el tramo se une en un solo job con las aperturas que toca.
+`--max-job N`: parte en trozos seguidos de N frames los jobs más largos (p. ej. un tramo
+lleno de varios minutos), sin solaparlos: cada evento cae en un solo job.
 
 Las aperturas se pasan A MANO (`--aperturas`), revisadas a ojo, y NO salen de door.py: así
 el golden no depende del detector de puerta que se evalúa. Cada job cubre la apertura
@@ -41,6 +43,7 @@ def main():
     ap.add_argument("--aperturas", required=True, help="a-b,c-d,... en frames contados desde 1")
     ap.add_argument("--dudosas", default="", help="a-b,...: tramos donde no se ve la puerta (cabecera '¿puerta?')")
     ap.add_argument("--margen", type=int, default=60)
+    ap.add_argument("--max-job", type=int, default=0, help="frames máximos por job (0 = sin partir)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
@@ -56,6 +59,8 @@ def main():
         else:
             merged.append([s, e])
     jobs = [(max(1, s - a.margen), e + a.margen) for s, e in merged]
+    if a.max_job:
+        jobs = [(k, min(k + a.max_job - 1, e)) for s, e in jobs for k in range(s, e + 1, a.max_job)]
     out = Path(a.out)
     (out / "img").mkdir(parents=True, exist_ok=True)
 
