@@ -68,3 +68,28 @@ video oscuro comprime más. Es una pista, no una clasificación: hay que mirarlo
    diurnos por nivel de congestión.
 3. Por cámara nueva: geometría + ROI (unos 15 min de Camilo), golden de tracking y golden de eventos.
 
+
+## Nombres en la torre (17-10)
+
+Los 480 videos de Bus están en `~/videos/bus/<cámara>/` con nombre **`bus_<cámara>_s<secuencia>_v<NN>.mkv`**:
+`ddl` = DoubleDoorCameraLeft, `ddr` = DoubleDoorCameraRight, `sdm` = SingleDoorMiddle, `sdr` = SingleDoorRear;
+`s<N>` = carpeta `SequenceN` del Drive; `v<NN>` = el número del `videoTM_NN` original. Tabla completa (nombre, ruta en
+el Drive, bytes y copia antigua) en `data/drive/nombres.csv`, copia de `~/videos/bus/nombres.csv`.
+
+Los 24 de `~/videos/` conservan su nombre viejo porque los citan configs, goldens y seqinfo. Equivalencias:
+
+| Antiguo | Nuevo | Antiguo | Nuevo |
+|---|---|---|---|
+| videoTM_07 | bus_ddl_s3_v07 | videoTM_04 | bus_ddr_s8_v04 |
+| videoTM_03 | bus_ddl_s3_v03 | videoTM_05 | bus_ddr_s5_v05 |
+| videoTM_02 | bus_ddl_s6_v02 | videoTM_08 | bus_ddr_s5_v08 |
+| videoTM_03(1) | bus_sdm_s4_v03 | videoTM_16(1) | bus_ddr_s5_v16 |
+| videoTM_10(1) | bus_sdm_s2_v10 | videoTM_29 | bus_ddr_s3_v29 |
+| videoTM_04(1) | bus_ddl_s3_v04 | videoTM_04(2) | bus_sdr_s1_v04 |
+| videoTM_05(1) | bus_ddl_s3_v05 | videoTM_11 | bus_sdr_s1_v11 |
+| videoTM_10 | bus_ddl_s3_v10 | videoTM_12 | bus_sdr_s1_v12 |
+| videoTM_13 | bus_ddl_s3_v13 | videoTM_14 | bus_ddl_s7_v14 |
+| videoTM_16 | bus_ddl_s8_v16 | videoTM_17 | bus_ddl_s6_v17 |
+| videoTM_18 | bus_ddl_s4_v18 | videoTM_18(1) | bus_ddl_s8_v18 |
+
+intelC1 e intelC36 son de Station (SingleDoorRearRGBD/Sequence2/RGB) y no se bajaron con Bus.
