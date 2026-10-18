@@ -16,7 +16,8 @@ no el video entero. Candidatos de un video, unidos si se solapan o están a < 2 
 
 `candidatos` escribe `<out>/<video>.candidatos.csv` (la plantilla que Camilo corrige) y
 `<out>/<video>.frames.txt` (frames de la hoja de revisión, un frame cada 0,5 s con ±60 f de margen,
-como mucho 48 por candidato). Las hojas se arman en la torre con `hojas.sh` (ffmpeg + drawtext).
+48 por hoja; los candidatos largos van en varias hojas a 1 s). `hojas` imprime el bash que las arma
+en la torre (ffmpeg + drawtext).
 
 Nunca se usa con los videos de prueba (02, 03(1), DDR v18, SDR v08).
 
@@ -25,6 +26,7 @@ Nunca se usa con los videos de prueba (02, 03(1), DDR v18, SDR v08).
   uv run scripts/flow/puerta_dev.py ref --camera C --raw R.raw --out R.npy   # closed_frames del yaml
 """
 import argparse, csv, pathlib, sys
+from string import ascii_lowercase as LETTERS, digits as DIGITS
 
 import numpy as np
 
@@ -93,10 +95,14 @@ def cmd_candidatos(a):
             w.writerow([n, s, e, src, f"{sm[lo:hi].min():.2f}", "", "", "", ""])
     with open(out / f"{a.video}.frames.txt", "w") as f:
         for n, (s, e, _) in enumerate(cand, 1):
-            # frames 15k+1: los que saca la pasada única de `hojas` (uno cada 0,5 s)
+            # frames 15k+1: los que saca la pasada única de `hojas` (uno cada 0,5 s). Un candidato de hasta
+            # 24 s cabe en una hoja a 0,5 s; uno más largo va en hojas de 48 s a 1 s (3a, 3b, ...).
             lo, hi = (max(1, s - 60) - 1) // 15 * 15 + 1, min(n_frames, e + 60)
-            stride = max(15, -(-(hi - lo) // 47 // 15) * 15)
-            f.write(f"{n} " + " ".join(str(x) for x in range(lo, hi + 1, stride)) + "\n")
+            fr = list(range(lo, hi + 1, 15 if hi - lo <= 48 * 15 else 30))
+            parts = [fr[i:i + 48] for i in range(0, len(fr), 48)]
+            for k, part in enumerate(parts):
+                tag = f"{n}" if len(parts) == 1 else f"{n}{chr(97 + k) if k < 26 else k}"
+                f.write(f"{tag} " + " ".join(map(str, part)) + "\n")
     src_count = {k: sum(k in c[2] for c in cand) for k in ("door", "baja", "oscura")}
     print(f"{a.video}: {len(cand)} candidatos {src_count}; similitud cerrada≈{np.median(sim):.2f}", file=sys.stderr)
 
@@ -115,7 +121,7 @@ def cmd_hojas(a):
         n, fr = l[0], [int(x) for x in l[1:]]
         print("printf '" + "".join(f"file 'f/{idx(f):06d}.jpg'\\n" for f in fr) + f"' > c{n}.txt")
         print(f"ffmpeg -nostdin -v error -f concat -safe 0 -i c{n}.txt -vf tile=8x6:padding=4 -frames:v 1 -q:v 3 "
-              f"-y {a.video}_c{int(n):03d}.jpg")
+              f"-y {a.video}_c{int(n.rstrip(LETTERS)):03d}{n.lstrip(DIGITS)}.jpg")
     print("rm -rf f c*.txt filtro.txt; echo hojas listas")
 
 
