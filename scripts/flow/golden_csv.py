@@ -41,6 +41,9 @@ def build(points, aperturas, margen=60, ninguno=()):
         nota = (p.get("attrs") or {}).get("nota", "") if p["label"] == "raro" else ""
         rows.append((*hit[0], p["frame"], p["label"], p["x"], p["y"], nota))
     rows += [(a, b, "", "ninguno", "", "", "puerta cerrada") for a, b in ninguno]
+    # una apertura sin nadie que cruce sigue en el golden: sus eventos del sistema son falsos
+    rows += [(a, b, "", "ninguno", "", "", "apertura sin eventos") for a, b in aperturas
+             if not any(r[0] == a and r[1] == b for r in rows)]
     rows.sort(key=lambda r: (r[0], r[2] if r[2] != "" else -1))
     return rows, fuera
 
@@ -67,7 +70,7 @@ def cmd_build(a):
 
 
 def cmd_selftest(_):
-    ap = [(100, 200), (500, 600)]
+    ap = [(100, 200), (500, 600), (800, 900)]
     pts = [{"frame": 150, "label": "sube", "x": 1, "y": 2, "type": "points"},
            {"frame": 650, "label": "baja", "x": 3, "y": 4, "type": "points"},          # margen de 60
            {"frame": 520, "label": "raro", "x": 5, "y": 6, "type": "points", "attrs": {"nota": "duda"}},
@@ -77,7 +80,8 @@ def cmd_selftest(_):
     buf = io.StringIO(); write(rows, buf)
     got = list(csv.DictReader(io.StringIO(buf.getvalue())))
     checks = [
-        ("una fila por evento válido + el tramo ninguno", len(got) == 4),
+        ("una fila por evento válido + el tramo ninguno + la apertura vacía", len(got) == 5),
+        ("la apertura vacía queda como ninguno", any(r["parada_inicio"] == "800" and r["direccion"] == "ninguno" for r in got)),
         ("la subida va a su apertura", got[0]["parada_inicio"] == "100" and got[0]["direccion"] == "sube"),
         ("el margen del job cuenta (650 → 500-600)", any(r["frame"] == "650" and r["parada_inicio"] == "500" for r in got)),
         ("raro conserva su nota", any(r["direccion"] == "raro" and r["nota"] == "duda" for r in got)),
