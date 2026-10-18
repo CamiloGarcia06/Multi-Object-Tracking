@@ -3,7 +3,7 @@
 Escrita el 2026-10-18 a partir de los criterios fijados con los goldens de videoTM_07, 03 y 02
 (12-10). Vale para los goldens reducidos de la prueba multicámara (19a SDM 03(1), 19b DDR v18,
 19c SDR v08) y es el texto de partida del apartado de la memoria sobre la verdad de terreno.
-Las reglas marcadas **(propuesta)** no se habían fijado antes: Camilo las confirma o corrige.
+Los casos 2 y 5 se fijaron al escribir la guía y Camilo los confirmó el 18-10.
 
 ## Qué es un evento
 
@@ -52,14 +52,14 @@ caso de duda, el andén es el lado de la curva roja.
 ## Casos difíciles
 
 1. **Llega a la verde y se da la vuelta sin cruzar** (se asoma, deja pasar a otro): nada.
-2. **Sale para dejar bajar a otros y vuelve a subir** en la misma parada **(propuesta)**: un
+2. **Sale para dejar bajar a otros y vuelve a subir** en la misma parada: un
    `raro` con nota "sale y vuelve", ni `sube` ni `baja`. No es un pasajero que sube ni que baja;
    si el sistema lo cuenta, aparece como error y queda explicado por la nota.
 3. **Cabeza tapada en el cruce** (otra cabeza, un brazo, la barra): el punto va en el frame en
    que la cabeza estaría en la verde, estimado entre el último y el primer frame en que se ve. Si
    no se sabe ni la dirección, `raro`.
 4. **Dos personas a la vez**: dos puntos, aunque compartan frame.
-5. **Niño en brazos** **(propuesta)**: cuenta si su cabeza se ve aparte; si no, `raro` con nota
+5. **Niño en brazos**: cuenta si su cabeza se ve aparte; si no, `raro` con nota
    "niño en brazos".
 6. **Sentados junto a la puerta** (sobre todo en SDR) y gente que espera de pie en el escalón:
    nada mientras no crucen.
