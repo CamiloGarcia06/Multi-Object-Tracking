@@ -7,11 +7,12 @@
 
 Cada clip (`data/tracking_golden/<clip>/`) dice en su seqinfo.ini de qué video sale
 (`source`) y dónde empieza (`start`). Las corridas son del video ENTERO:
-`--runs DIR/<tracker>/<video>.txt` (video = 07, 02, 03_1). Para cada clip, este script
+`--runs DIR/<tracker>/<video>.txt` (video = 07, 02, 03_1, bus_ddr_s6_v18, bus_sdr_s1_v08). Para cada clip, este script
 recorta cada corrida a su tramo y recorta golden y corrida a la ROI del montaje (centro
 de la caja, la regla de track-studio, igual que `eval_tracking.py publish`), y pasa
 todo a TrackEval con el mismo `evaluate` de eval_tracking.py. Una tabla por clip, que
-es un nivel de congestión: tm07_a baja, tm03_1_a media, tm02_a alta.
+es una cámara y un nivel de congestión: tm07_a DDL baja, tm03_1_a SDM media, tm02_a DDL alta,
+ddr_s6_v18_a DDR alta, sdr_s1_v08_a SDR baja (17b).
 
 Uso:
   uv run scripts/tracking/comparar.py --golden data/tracking_golden --runs data/flow_eval/runs \\
@@ -23,9 +24,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import eval_tracking as ET  # noqa: E402
 
 CAMERAS = pathlib.Path(__file__).resolve().parents[2] / "configs" / "cameras"
-VIDEOS = {"videoTM_07": "07", "videoTM_02": "02", "videoTM_03(1)": "03_1"}
-ROIS = {"07": "roi_videoTM_07.json", "02": "roi_videoTM_07.json", "03_1": "roi_videoTM_03_1.json"}   # 02 = montaje del 07
-LEVEL = {"07": "baja", "03_1": "media", "02": "alta"}
+VIDEOS = {"videoTM_07": "07", "videoTM_02": "02", "videoTM_03(1)": "03_1",
+          "bus_ddr_s6_v18": "bus_ddr_s6_v18", "bus_sdr_s1_v08": "bus_sdr_s1_v08"}
+ROIS = {"07": "roi_videoTM_07.json", "02": "roi_videoTM_07.json", "03_1": "roi_videoTM_03_1.json",   # 02 = montaje del 07
+        "bus_ddr_s6_v18": "roi_bus_ddr_s6.json", "bus_sdr_s1_v08": "roi_bus_sdr_s1.json"}
+# nivel = el del video en docs/inventario-camaras.md (% del tiempo lleno, <10 / 10-25 / >=25)
+LEVEL = {"07": "baja", "03_1": "media", "02": "alta", "bus_ddr_s6_v18": "alta", "bus_sdr_s1_v08": "baja"}
+CAMERA = {"07": "DDL", "02": "DDL", "03_1": "SDM", "bus_ddr_s6_v18": "DDR", "bus_sdr_s1_v08": "SDR"}
 
 
 def lines(path):
@@ -62,12 +67,13 @@ def main():
             levels[seq] = LEVEL[video]
         results = ET.evaluate(clips, {t.name: run_dir / t.name for t in trackers})
 
-    order = sorted(clips, key=lambda s: ["baja", "media", "alta"].index(levels[s]))
+    cams = {seq: CAMERA[VIDEOS[ET.seqinfo(seqs[seq])["source"]]] for seq in clips}
+    order = sorted(clips, key=lambda s: (["DDL", "SDM", "DDR", "SDR"].index(cams[s]), ["baja", "media", "alta"].index(levels[s])))
     parts = ["# Trackers por nivel de congestión (golden de tracking)\n",
              "Mismas detecciones (campeón, NMS post-hoc 0,6) y misma ROI para todos: solo cambia la asociación. "
              "Ordenado por HOTA. IoU 0,5 para MOTA/IDF1.\n"]
     for seq in order:
-        parts += [f"\n## {seq} — congestión {levels[seq]}\n", ET.table(results, seq)]
+        parts += [f"\n## {seq} — {cams[seq]}, congestión {levels[seq]}\n", ET.table(results, seq)]
     parts += ["\n## Todos los clips\n", ET.table(results, "TODAS")]
     text = "\n".join(parts) + "\n"
     print(text)
