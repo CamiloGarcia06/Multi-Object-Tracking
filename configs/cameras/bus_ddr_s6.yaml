@@ -5,13 +5,16 @@ size: [640, 480]
 
 # ROI: roi_bus_ddr_s6.json (trazada por Camilo el 2026-10-18 sobre bus_ddr_s6_v09 f17190).
 
-# Propuesta del 2026-10-18, APROBADA por Camilo ese día sin cambios. Misma convención que el 03(1): las
-# curvas van por donde pasan las CABEZAS, cerca del borde exterior del vidrio de la puerta (no del
-# umbral del piso, x≈245). Parábola vertical ajustada al borde izquierdo de la ROI y desplazada
-# +8 px (outer) y +32 px (inner) hacia el pasillo; muestreada cada 40 px de y = 0 a 479.
+# Curvas MEDIDAS el 2026-10-18 con el método del 07 (detecciones del campeón sobre el video de prueba,
+# conf ≥ 0,3, lejos de toda apertura ±150 f = todas las cabezas son de pasajeros dentro). La propuesta
+# inicial (parábola al borde exterior del vidrio +8/+32 px, misma convención que el 03(1)) dejaba 35–50 px
+# de holgura sobre el andén; se movió +30 px hacia el pasillo y la exterior a 40 px de la interior, como
+# el 07. Resultado: las cabezas de dentro llegan a 7 px de la interior (percentil 0,1) y casi ninguna
+# pasa la exterior. Con la puerta llena, las cabezas de quien va apoyado en ella caen sobre el vidrio:
+# por eso las curvas no pueden ir más adentro. Aprobadas por Camilo el 18-10.
 door:
-  inner: [[159, 0], [136, 40], [117, 80], [102, 120], [90, 160], [82, 200], [77, 240], [76, 280], [79, 320], [85, 360], [95, 400], [109, 440], [126, 479]]
-  outer: [[135, 0], [112, 40], [93, 80], [78, 120], [66, 160], [58, 200], [53, 240], [52, 280], [55, 320], [61, 360], [71, 400], [85, 440], [102, 479]]
+  inner: [[189, 0], [166, 40], [147, 80], [132, 120], [120, 160], [112, 200], [107, 240], [106, 280], [109, 320], [115, 360], [125, 400], [139, 440], [156, 479]]
+  outer: [[149, 0], [126, 40], [107, 80], [92, 120], [80, 160], [72, 200], [67, 240], [66, 280], [69, 320], [75, 360], [85, 400], [99, 440], [116, 479]]
 
 inside: [400, 240]
 
