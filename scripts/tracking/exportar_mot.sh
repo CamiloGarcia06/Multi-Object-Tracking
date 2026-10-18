@@ -5,10 +5,10 @@
 #   data/tracking_golden/<clip>/       gt/gt.txt + seqinfo.ini (de data/cvat_import/<clip>/)
 # Lee la contraseña de ~/srv/cvat/.credenciales (o de CVAT_PASS) sin sacarla de esta máquina.
 #   bash exportar_mot.sh 55 tm03_1_a
+#   bash exportar_mot.sh t16          por tarea: saca el job y el clip del nombre "golden tracking <clip>"
 set -euo pipefail
-JOB=$1 CLIP=$2
+JOB=$1 CLIP=${2:-}
 DATA=$(cd "$(dirname "$0")/../../data" && pwd)
-[ -f "$DATA/cvat_import/$CLIP/seqinfo.ini" ] || { echo "no existe $DATA/cvat_import/$CLIP/seqinfo.ini"; exit 1; }
 API=http://localhost:8080
 H=(-H "Host: cvat.torre")
 USER_=${CVAT_USER:-camilo}
@@ -23,6 +23,15 @@ for cand in "${CVAT_PASS:-}" \
 done
 [ -n "$PASS" ] || { echo "No pude autenticar como $USER_: exporta CVAT_PASS=... y repite"; exit 1; }
 A=(-u "$USER_:$PASS")
+
+if [[ $JOB == t* ]]; then
+  TASK=${JOB#t}
+  NAME=$(curl -sf "${H[@]}" "${A[@]}" "$API/api/tasks/$TASK" | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
+  JOB=$(curl -sf "${H[@]}" "${A[@]}" "$API/api/jobs?task_id=$TASK" | python3 -c 'import json,sys; print(json.load(sys.stdin)["results"][0]["id"])')
+  [ -n "$CLIP" ] || CLIP=${NAME#golden tracking }
+  echo "tarea $TASK = \"$NAME\" -> job $JOB, clip $CLIP"
+fi
+[ -f "$DATA/cvat_import/$CLIP/seqinfo.ini" ] || { echo "no existe $DATA/cvat_import/$CLIP/seqinfo.ini"; exit 1; }
 
 RQ=$(curl -sf "${H[@]}" "${A[@]}" -X POST "$API/api/jobs/$JOB/dataset/export?format=MOT%201.1&save_images=false" \
      | python3 -c 'import json,sys; print(json.load(sys.stdin)["rq_id"])')
