@@ -1,5 +1,6 @@
 # C1 — geometría de la cámara SDR (SingleDoorRear), secuencia 1: puerta sencilla a la IZQUIERDA del frame.
-# Vale para todos los videos bus_sdr_s1_* (mismo montaje). Prueba: bus_sdr_s1_v10 (Tesis 21).
+# Vale para todos los videos bus_sdr_s1_* (mismo montaje). Prueba PROPUESTA: bus_sdr_s1_v08 (reserva v05); el v10 se
+# descartó el 18-10: reflejos y gente apoyada en la puerta, door_open no aplica (criba en data/flow_eval/puerta_revision/).
 size: [640, 480]
 
 # ROI: roi_bus_sdr_s1.json (trazada por Camilo el 2026-10-18 sobre bus_sdr_s1_v02 f24090).
@@ -20,4 +21,17 @@ od:
   pasillo: 80
   holgura: 15
 
-# door_open: PENDIENTE (Tesis 14b) — recorte de las hojas y frames de puerta cerrada en bus_sdr_s1_v10.
+# Puerta abierta (scripts/flow/door.py), 2026-10-18: recorte sobre las hojas que incluye la junta (cuña
+# oscura con la puerta cerrada, dos barras finas abierta) y los marcos. Parámetros del 07/03(1).
+# Referencia de puerta cerrada DEL MONTAJE (vale para todos los videos de la secuencia):
+# bus_sdr_s1_v02, frames 22201–24001 (bus vacío).
+door_open:
+  fps: 30
+  crop: [60, 60, 175, 300]
+  scale: [36, 52]
+  step: 3
+  closed_ref: door_ref_bus_sdr_s1.npy
+  smooth: 10
+  threshold: 0.35
+  min_frames: 45
+  min_brightness: 40
