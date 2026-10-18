@@ -1,0 +1,28 @@
+descripcion: corrección de sesgo del conteo (scripts/flow/calibrate.py)
+estimado_en:
+  golden:
+  - data/flow_golden/videoTM_03.csv
+  - data/flow_golden/videoTM_07.csv
+  sistema:
+  - data/flow_eval/baseline/03_sin_tracking.csv
+  - data/flow_eval/baseline/07_sin_tracking.csv
+  aperturas: 20
+  fecha: '2026-10-18'
+min_events: 10
+direcciones:
+  sube:
+    factor: 0.5588
+    ic95:
+    - 0.3415
+    - 1.0769
+    fuente: propia
+    real_validacion: 34
+    contado_validacion: 19
+  baja:
+    factor: 0.5231
+    ic95:
+    - 0.4042
+    - 0.7308
+    fuente: propia
+    real_validacion: 65
+    contado_validacion: 34
