@@ -1,0 +1,23 @@
+# C1 — geometría de la cámara SDR (SingleDoorRear), secuencia 1: puerta sencilla a la IZQUIERDA del frame.
+# Vale para todos los videos bus_sdr_s1_* (mismo montaje). Prueba: bus_sdr_s1_v10 (Tesis 21).
+size: [640, 480]
+
+# ROI: roi_bus_sdr_s1.json (trazada por Camilo el 2026-10-18 sobre bus_sdr_s1_v02 f24090).
+
+# Propuesta del 2026-10-18, APROBADA por Camilo ese día sin cambios. Misma convención que el 03(1): las
+# curvas van por donde pasan las CABEZAS, cerca del borde exterior del vidrio de la puerta (no del
+# umbral del piso, x≈235). Parábola vertical ajustada al borde izquierdo de la ROI y desplazada
+# +8 px (outer) y +32 px (inner) hacia el pasillo; muestreada cada 40 px de y = 0 a 479.
+door:
+  inner: [[110, 0], [97, 40], [87, 80], [80, 120], [77, 160], [77, 200], [80, 240], [86, 280], [96, 320], [109, 360], [125, 400], [144, 440], [166, 479]]
+  outer: [[86, 0], [73, 40], [63, 80], [56, 120], [53, 160], [53, 200], [56, 240], [62, 280], [72, 320], [85, 360], [101, 400], [120, 440], [142, 479]]
+
+inside: [400, 240]
+
+# Regla od: mismos parámetros que el 07/03/03(1), sin reajustar (SDR es prueba).
+od:
+  zona_puerta: 40
+  pasillo: 80
+  holgura: 15
+
+# door_open: PENDIENTE (Tesis 14b) — recorte de las hojas y frames de puerta cerrada en bus_sdr_s1_v10.
