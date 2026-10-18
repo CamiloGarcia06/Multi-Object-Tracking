@@ -48,3 +48,23 @@ va lleno con la puerta visible: SDR queda en congestión baja–media (limitaci�
 
 Hojas y mosaicos (no versionados): `data/flow_eval/puerta_revision/`. Regenerar: extraer con `door.py ffmpeg` en la torre
 y calcular similitud + intervalos con `door.similarity` / `door.intervals` sobre cada raw.
+
+## Revisión de door.py en los videos de prueba (Tesis 14a/14b, 2026-10-18)
+
+Cada intervalo de door.py revisado a ojo en la zona de la puerta (un frame cada 15 f, ±90 f), y
+búsqueda de aperturas perdidas: tramos con similitud suavizada < 0,5 durante ≥ 1 s fuera de toda
+apertura, más el tramo lleno del v18 (frames 1–9.000, un frame cada 60 f).
+
+| Video | Intervalos door.py | Reales | Falsos | Candidatas a perdida revisadas | Perdidas | Precisión | Recall |
+|---|---|---|---|---|---|---|---|
+| DDR s6_v18 | 11 | 11 | 0 | 3 + minutos 0–5 | 0 | 1,00 | 1,00 |
+| SDR s1_v08 | 12 | 11 | 1 (13.690) | 9 | 0 | 0,92 | 1,00 |
+
+- **Falso del v08 (13.690–13.738):** pasajero de pie contra la puerta cerrada + bus rojo por el vidrio.
+- **Candidatas descartadas:** todas son oclusiones con la puerta CERRADA (la junta de las hojas sigue
+  visible): pasajero apoyado en la puerta (DDR 9.481–10.990 y 13.384; SDR 11.977–12.790 y 21.937) o un bus
+  rojo del SITP detenido al lado (SDR 6.673–7.246). door.py hizo bien en no contarlas.
+- DDR v18 minutos 0–5 (bus lleno): puerta cerrada todo el tramo; el bus no para.
+- Límites: el recall cuenta solo lo que la búsqueda pudo ver (no es una revisión frame a frame del video
+  entero). En la 11.308 del v08, door.py empieza ~4 s antes por un pasajero contra la puerta (real desde
+  ~11.420; el golden de eventos usa los límites revisados a ojo).
