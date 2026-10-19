@@ -1,0 +1,40 @@
+# C1 — geometría de la cámara SDR (SingleDoorRear), secuencia 1: puerta sencilla a la IZQUIERDA del frame.
+# Vale para todos los videos bus_sdr_s1_* (mismo montaje). Prueba PROPUESTA: bus_sdr_s1_v08 (reserva v05); el v10 se
+# descartó el 18-10: reflejos y gente apoyada en la puerta, door_open no aplica (criba en data/flow_eval/puerta_revision/).
+size: [640, 480]
+
+# ROI: roi_bus_sdr_s1.json (trazada por Camilo el 2026-10-18 sobre bus_sdr_s1_v02 f24090).
+
+# Curvas MEDIDAS el 2026-10-18 con el método del 07 (detecciones del campeón sobre el video de prueba,
+# conf ≥ 0,3, lejos de toda apertura ±150 f = todas las cabezas son de pasajeros dentro). La propuesta
+# inicial (parábola al borde exterior del vidrio +8/+32 px, misma convención que el 03(1)) dejaba 35–50 px
+# de holgura sobre el andén; se movió +30 px hacia el pasillo y la exterior a 40 px de la interior, como
+# el 07. Resultado: las cabezas de dentro llegan a 4 px de la interior (percentil 0,1) y casi ninguna
+# pasa la exterior. Con la puerta llena, las cabezas de quien va apoyado en ella caen sobre el vidrio:
+# por eso las curvas no pueden ir más adentro. Aprobadas por Camilo el 18-10.
+door:
+  inner: [[140, 0], [127, 40], [117, 80], [110, 120], [107, 160], [107, 200], [110, 240], [116, 280], [126, 320], [139, 360], [155, 400], [174, 440], [196, 479]]
+  outer: [[100, 0], [87, 40], [77, 80], [70, 120], [67, 160], [67, 200], [70, 240], [76, 280], [86, 320], [99, 360], [115, 400], [134, 440], [156, 479]]
+
+inside: [400, 240]
+
+# Regla od: mismos parámetros que el 07/03/03(1), sin reajustar (SDR es prueba).
+od:
+  zona_puerta: 40
+  pasillo: 80
+  holgura: 15
+
+# Puerta abierta (scripts/flow/door.py), 2026-10-18: recorte sobre las hojas que incluye la junta (cuña
+# oscura con la puerta cerrada, dos barras finas abierta) y los marcos. Parámetros del 07/03(1).
+# Referencia de puerta cerrada DEL MONTAJE (vale para todos los videos de la secuencia):
+# bus_sdr_s1_v02, frames 22201–24001 (bus vacío).
+door_open:
+  fps: 30
+  crop: [60, 60, 175, 300]
+  scale: [36, 52]
+  step: 3
+  closed_ref: door_ref_bus_sdr_s1.npy
+  smooth: 10
+  threshold: 0.35
+  min_frames: 45
+  min_brightness: 40

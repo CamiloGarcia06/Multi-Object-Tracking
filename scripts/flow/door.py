@@ -15,6 +15,9 @@ cuánto se parecen los bordes de cada frame a los de la puerta cerrada:
      las sombras; los bordes de los marcos no.
   3. Referencia: MEDIANA de los mapas de bordes de `closed_frames`, frames
      elegidos a mano con la puerta cerrada (la mediana quita al que pasaba).
+     O `closed_ref`: esa mediana guardada en .npy (subcomando `ref`), que vale
+     para TODOS los videos del mismo montaje: probado el 18-10 en DDR s6, la
+     referencia del v11 da en el v18 las mismas 11 aperturas que la propia.
   4. Similitud: correlación cruzada normalizada (NCC) de cada muestra con la
      referencia. Cerrada 0,6–0,95; abierta 0,05–0,2.
   5. Mediana móvil de `smooth` muestras, umbral `threshold` (abierta si la
@@ -26,6 +29,7 @@ cuánto se parecen los bordes de cada frame a los de la puerta cerrada:
 Límite: no sabe qué es una puerta, solo que los bordes de la zona cambiaron.
 Lo que se ve a través del vidrio (un bus rojo fuera) o gente de pie delante
 puede engañarlo. Todo se ajusta por cámara en `configs/cameras/<cámara>.yaml`.
+Solo `closed_frames` es de un video concreto; con `closed_ref` la config es del montaje.
 
 Frames: numerados desde 1, como el MOT (frame 1 = primer frame del video).
 
@@ -36,6 +40,8 @@ Uso:
   # el video vive en la torre: extraer allí y procesar aquí
   ssh torre "$(uv run scripts/flow/door.py ffmpeg --camera C --video /home/camilo-cachy/videos/videoTM_07.mkv)" > door.raw
   uv run scripts/flow/door.py detect --camera C --raw door.raw --out ...
+  # referencia de la puerta cerrada para todo el montaje (closed_frames de ESE video)
+  uv run scripts/flow/door.py ref --camera C --raw door.raw --frames 20701 21601 --out configs/cameras/door_ref_X.npy
 """
 import argparse, json, pathlib, shlex, subprocess, sys
 
@@ -47,6 +53,8 @@ def load_config(path):
     cfg = yaml.safe_load(pathlib.Path(path).read_text()).get("door_open")
     if not cfg:
         sys.exit(f"{path}: falta la sección door_open")
+    if cfg.get("closed_ref"):  # relativa al yaml
+        cfg["closed_ref"] = str(pathlib.Path(path).parent / cfg["closed_ref"])
     return cfg
 
 
@@ -81,14 +89,19 @@ def ncc(stack, ref):
 def similarity(cfg, samples):
     """Similitud de cada muestra con la puerta cerrada. Las muestras casi negras (túnel:
     brillo medio < `min_brightness`) no tienen bordes que comparar: cuentan como cerradas."""
-    step = cfg["step"]
     g = edges(samples)
-    idx = [(f - 1) // step for f in cfg["closed_frames"]]
-    if max(idx) >= len(g):
-        sys.exit(f"closed_frames: el video solo tiene {len(g) * step} frames")
-    sim = ncc(g, np.median(g[idx], 0))
+    ref = np.load(cfg["closed_ref"]) if cfg.get("closed_ref") else closed_reference(cfg, g, cfg["closed_frames"])
+    sim = ncc(g, ref)
     sim[samples.mean((1, 2)) < cfg.get("min_brightness", 0)] = 1.0
     return sim
+
+
+def closed_reference(cfg, g, frames):
+    """Mediana de los mapas de bordes `g` en los frames dados (puerta cerrada)."""
+    idx = [(f - 1) // cfg["step"] for f in frames]
+    if max(idx) >= len(g):
+        sys.exit(f"closed_frames: el video solo tiene {len(g) * cfg['step']} frames")
+    return np.median(g[idx], 0)
 
 
 def intervals(cfg, sim):
@@ -115,13 +128,24 @@ def cmd_ffmpeg(a):
     print(shlex.join(ffmpeg_args(load_config(a.camera), a.video)))
 
 
-def cmd_detect(a):
-    cfg = load_config(a.camera)
+def samples_of(cfg, a):
     if a.raw:
         raw = pathlib.Path(a.raw).read_bytes()
     else:
         raw = subprocess.run(ffmpeg_args(cfg, a.video), capture_output=True, check=True).stdout
-    sim = similarity(cfg, read_samples(cfg, raw))
+    return read_samples(cfg, raw)
+
+
+def cmd_ref(a):
+    cfg = load_config(a.camera)
+    ref = closed_reference(cfg, edges(samples_of(cfg, a)), a.frames or cfg["closed_frames"])
+    np.save(a.out, ref.astype(np.float32))
+    print(f"{a.out}: referencia {ref.shape} de {len(a.frames or cfg['closed_frames'])} frames", file=sys.stderr)
+
+
+def cmd_detect(a):
+    cfg = load_config(a.camera)
+    sim = similarity(cfg, samples_of(cfg, a))
     iv = intervals(cfg, sim)
     pathlib.Path(a.out).write_text(json.dumps(iv) + "\n")
     secs = sum(b - a_ for a_, b in iv) / cfg.get("fps", 30)
@@ -154,6 +178,12 @@ def cmd_selftest(_):
         ("el túnel no es apertura", all(b < 3 * 500 or a_ > 3 * 540 for a_, b in got)),
         ("exclude quita un intervalo", intervals({**cfg, "exclude": got}, sim) == []),
     ]
+    # closed_ref: la referencia guardada da lo mismo que closed_frames
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".npy") as f:
+        np.save(f.name, closed_reference(cfg, edges(frames), cfg["closed_frames"]))
+        same = intervals(cfg, similarity({**cfg, "closed_ref": f.name}, frames)) == got
+    checks.append(("closed_ref equivale a closed_frames", same))
     for name, cond in checks:
         ok &= bool(cond)
         print(f"{'OK  ' if cond else 'FALLO'}  {name}")
@@ -169,12 +199,19 @@ def main():
     src.add_argument("--video")
     src.add_argument("--raw", help="salida de `door.py ffmpeg` ya extraída (p. ej. en la torre)")
     s.add_argument("--out", required=True)
+    s = sub.add_parser("ref", help="guarda la referencia de puerta cerrada (.npy) para todo el montaje")
+    s.add_argument("--camera", required=True)
+    src = s.add_mutually_exclusive_group(required=True)
+    src.add_argument("--video")
+    src.add_argument("--raw")
+    s.add_argument("--frames", type=int, nargs="+", help="frames con la puerta cerrada (por defecto closed_frames)")
+    s.add_argument("--out", required=True)
     s = sub.add_parser("ffmpeg", help="imprime el comando de extracción, para correrlo donde está el video")
     s.add_argument("--camera", required=True)
     s.add_argument("--video", required=True)
     sub.add_parser("selftest")
     a = p.parse_args()
-    {"detect": cmd_detect, "ffmpeg": cmd_ffmpeg, "selftest": cmd_selftest}[a.cmd](a)
+    {"detect": cmd_detect, "ref": cmd_ref, "ffmpeg": cmd_ffmpeg, "selftest": cmd_selftest}[a.cmd](a)
 
 
 if __name__ == "__main__":

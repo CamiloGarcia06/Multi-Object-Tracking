@@ -1,0 +1,40 @@
+# C1 — geometría de la cámara DDR (DoubleDoorCameraRight), secuencia 6: puerta doble a la IZQUIERDA del frame.
+# Vale para todos los videos bus_ddr_s6_* (mismo montaje). Prueba: bus_ddr_s6_v18 (Tesis 21; el v15 se descartó el
+# 18-10: lleno, la gente tapa la puerta y door_open no aplica — criba en data/flow_eval/puerta_revision/).
+size: [640, 480]
+
+# ROI: roi_bus_ddr_s6.json (trazada por Camilo el 2026-10-18 sobre bus_ddr_s6_v09 f17190).
+
+# Curvas MEDIDAS el 2026-10-18 con el método del 07 (detecciones del campeón sobre el video de prueba,
+# conf ≥ 0,3, lejos de toda apertura ±150 f = todas las cabezas son de pasajeros dentro). La propuesta
+# inicial (parábola al borde exterior del vidrio +8/+32 px, misma convención que el 03(1)) dejaba 35–50 px
+# de holgura sobre el andén; se movió +30 px hacia el pasillo y la exterior a 40 px de la interior, como
+# el 07. Resultado: las cabezas de dentro llegan a 7 px de la interior (percentil 0,1) y casi ninguna
+# pasa la exterior. Con la puerta llena, las cabezas de quien va apoyado en ella caen sobre el vidrio:
+# por eso las curvas no pueden ir más adentro. Aprobadas por Camilo el 18-10.
+door:
+  inner: [[189, 0], [166, 40], [147, 80], [132, 120], [120, 160], [112, 200], [107, 240], [106, 280], [109, 320], [115, 360], [125, 400], [139, 440], [156, 479]]
+  outer: [[149, 0], [126, 40], [107, 80], [92, 120], [80, 160], [72, 200], [67, 240], [66, 280], [69, 320], [75, 360], [85, 400], [99, 440], [116, 479]]
+
+inside: [400, 240]
+
+# Regla od: mismos parámetros que el 07/03/03(1), sin reajustar (DDR es prueba).
+od:
+  zona_puerta: 40
+  pasillo: 80
+  holgura: 15
+
+# Puerta abierta (scripts/flow/door.py), 2026-10-18: recorte sobre las hojas que incluye la junta (cuña
+# oscura con la puerta cerrada, dos barras finas abierta) y los marcos. Parámetros del 07/03(1).
+# Referencia de puerta cerrada DEL MONTAJE (vale para todos los videos de la secuencia):
+# bus_ddr_s6_v18, frames 20701–25201 (bus vacío).
+door_open:
+  fps: 30
+  crop: [60, 110, 180, 260]
+  scale: [36, 52]
+  step: 3
+  closed_ref: door_ref_bus_ddr_s6.npy
+  smooth: 10
+  threshold: 0.35
+  min_frames: 45
+  min_brightness: 40

@@ -40,7 +40,8 @@ su seqinfo.ini:
   start=3601            # frame del video (desde 1, como el MOT del job) donde empieza el clip
 Si el job se trackeo con ROI, el golden se recorta a la MISMA ROI (por el centro
 de la caja, la regla de track-studio): si no, se le cobrarian cabezas que el
-tracker nunca llego a ver.
+tracker nunca llego a ver. La corrida tambien, como en comparar.py: a un job de
+track-studio no le cambia nada y uno importado (video entero, 17b) da lo mismo que la tesis.
 """
 import argparse, configparser, json, os, pathlib, shutil, subprocess, sys, tempfile, urllib.error, urllib.request
 
@@ -275,8 +276,19 @@ def cmd_publish(a):
         roi = json.loads(body)
 
     seqs = {}
+    starts = getattr(a, "starts", None) or {}
     for seq, gt in find_sequences(a.gt).items():
         info = seqinfo(gt)
+        if starts:
+            # job que no es el video entero (un collage): quien llama dice en qué frame del job
+            # empieza cada clip; los demás clips no están en él
+            if seq in starts:
+                seqs[seq] = (gt, starts[seq], int(info["seqlength"]))
+            continue
+        if seq == video and "seqlength" in info:
+            # job de una apertura (videos_apertura.py): su MOT ya es el clip, frames desde 1
+            seqs[seq] = (gt, 1, int(info["seqlength"]))
+            continue
         if info.get("source") != video:
             print(f"  {seq}: es de '{info.get('source', '?')}', no de {video} -> se salta")
             continue
@@ -297,8 +309,11 @@ def cmd_publish(a):
             (tmp / "gt" / seq / "gt").mkdir(parents=True)
             (tmp / "gt" / seq / "gt" / "gt.txt").write_text("\n".join(gt_lines) + "\n")
             (tmp / "gt" / seq / "seqinfo.ini").write_text(f"[Sequence]\nname={seq}\nseqLength={n}\n")
+            run_lines = cut_lines(tracks, start, n)
+            if roi is not None:   # un job propio ya viene filtrado; uno importado (17b) no, y comparar.py lo recorta
+                run_lines = inside_roi(run_lines, roi["polygon"])
             run_dir.mkdir(parents=True, exist_ok=True)
-            (run_dir / f"{seq}.txt").write_text("\n".join(cut_lines(tracks, start, n)) + "\n")
+            (run_dir / f"{seq}.txt").write_text("\n".join(run_lines) + "\n")
             layout[seq] = n
         results = evaluate(find_sequences(tmp / "gt"), {f"job{a.job}": run_dir})[f"job{a.job}"]
 

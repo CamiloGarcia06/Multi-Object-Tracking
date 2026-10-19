@@ -13,9 +13,13 @@ escrito en ningún sitio: s03 = videoTM_10 (golden_baseline.md), v10b = videoTM_
 v18S08 = videoTM_18(1) se deducen por descarte.
 
 Necesita ultralytics: en la torre con el venv de track-studio.
-  ~/Projects/track-studio/.venv/bin/python inventario_camaras.py ~/videos OUT
+  ~/Projects/track-studio/.venv/bin/python inventario_camaras.py ~/videos/bus OUT
+
+Recorre `<src>/<cam>/bus_<cam>_s<seq>_v<NN>.mkv` (nombres de la tarea 13); el ESTADO se cruza
+por la columna `copia_local_antigua` de `<src>/nombres.csv`. Si se corta, se reanuda: lo ya
+escrito en `OUT/inventario.jsonl` no se repite.
 """
-import json, sys
+import csv, json, sys
 from pathlib import Path
 
 import numpy as np
@@ -69,13 +73,21 @@ def main():
 
     src, out = Path(sys.argv[1]), Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)
+    antigua = {}
+    with open(src / "nombres.csv") as f:
+        for r in csv.DictReader(f):
+            if r["copia_local_antigua"]:
+                antigua[r["nombre"]] = Path(r["copia_local_antigua"]).stem.removeprefix("videoTM_")
+    log = out / "inventario.jsonl"
+    hechos = {json.loads(l)["video"] for l in log.read_text().splitlines()} if log.exists() else set()
     model = YOLO(str(WEIGHTS))
-    rows = []
-    for path in sorted(src.glob("videoTM_*.mkv")):
-        key = path.stem.removeprefix("videoTM_")
+    for path in sorted(src.glob("*/bus_*.mkv")):
+        if path.name in hechos:
+            continue
         stats, frames = scan(model, path)
-        row = {"video": path.name, "estado": ESTADO.get(key, "?"), **stats}
-        rows.append(row)
+        key = antigua.get(path.name)
+        estado = ESTADO.get(key, "?") if key else "nunca visto (sin copia antigua)"
+        row = {"video": path.name, "camara": path.parent.name, "antiguo": key, "estado": estado, **stats}
         tiles = []
         for name in ("medio", "max"):
             if name in frames:
@@ -83,8 +95,12 @@ def main():
                 img = cv2.resize(img, (320, 240))
                 cv2.putText(img, f"{name} f{f} {k} cab", (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
                 tiles.append(img)
-        cv2.imwrite(str(out / f"{path.stem}.jpg"), np.hstack(tiles))
+        if tiles:
+            cv2.imwrite(str(out / f"{path.stem}.jpg"), np.hstack(tiles))
+        with open(log, "a") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
         print(json.dumps(row, ensure_ascii=False), flush=True)
+    rows = [json.loads(l) for l in log.read_text().splitlines()]
     (out / "inventario.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1))
 
 

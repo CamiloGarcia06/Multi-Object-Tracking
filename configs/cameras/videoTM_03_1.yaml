@@ -1,0 +1,32 @@
+# C1 — geometría de videoTM_03(1): OTRO bus y montaje, puerta a la IZQUIERDA del frame.
+# Video de PRUEBA (cambio de cámara). Preparado el 2026-10-12 SIN mirar el golden:
+# la puerta abierta (door_open) primero, luego las curvas (pendientes de validar por Camilo).
+size: [640, 480]
+
+# Curvas TRAZADAS POR CAMILO el 2026-10-12 (morado, sobre el frame 1801), leídas de la captura
+# (escala ×1,094, desplazamiento 17,14): más hacia el marco exterior de la puerta que el espejo
+# del 07 que propuse antes (interior 127 → 70 px a media altura). Camilo pidió que fueran
+# PARÁBOLAS verticales de extremo a extremo: x = a·y² + b·y + c ajustada por mínimos cuadrados
+# a sus puntos y muestreada cada 40 px de y = 0 a 479.
+door:
+  inner: [[135, 0], [116, 40], [101, 80], [89, 120], [79, 160], [73, 200], [70, 240], [71, 280], [74, 320], [81, 360], [90, 400], [103, 440], [119, 479]]
+  outer: [[86, 0], [74, 40], [64, 80], [56, 120], [51, 160], [47, 200], [46, 240], [47, 280], [50, 320], [56, 360], [63, 400], [73, 440], [85, 479]]
+
+inside: [440, 300]
+
+# Regla od: mismos parámetros que el 07/03, sin reajustar (el 03(1) es prueba).
+od:
+  zona_puerta: 40
+  pasillo: 80
+  holgura: 15
+
+door_open:
+  fps: 30
+  crop: [40, 150, 170, 300]    # espejo del recorte del 07: cubre las hojas de la izquierda
+  scale: [34, 60]
+  step: 3
+  closed_frames: [1801, 3601, 5401, 7201, 10801, 12601, 14401, 16201]   # bus vacío, minutos 1–9
+  smooth: 10
+  threshold: 0.35
+  min_frames: 45
+  min_brightness: 40

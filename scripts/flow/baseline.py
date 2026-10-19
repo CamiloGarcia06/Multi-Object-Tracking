@@ -100,7 +100,10 @@ def roi_of_job(api, job):
 
 def cmd_events(a):
     cam = E.load_camera(a.camera)
-    roi = roi_of_job(a.api, a.roi_job) if a.roi_job else None
+    if a.roi:  # mismo formato que GET /api/jobs/{id}/roi (configs/cameras/roi_*.json)
+        roi = [tuple(p) for p in json.load(open(a.roi))["polygon"]]
+    else:
+        roi = roi_of_job(a.api, a.roi_job) if a.roi_job else None
     frames = load_centers(np.load(a.dets), a.conf, roi)
     is_open = E.door_filter(a.door, 0, cam["od"]["holgura"])
     events, dropped = crossings(cam, frames, a.gate, is_open)
@@ -109,7 +112,7 @@ def cmd_events(a):
     w.writerows((f, -1, k) for f, k in events)
     c = collections.Counter(k for _, k in events)
     print(json.dumps({"sube": c["sube"], "baja": c["baja"], "con_puerta_cerrada": dropped,
-                      "conf": a.conf, "gate": a.gate, "roi_job": a.roi_job}), file=sys.stderr)
+                      "conf": a.conf, "gate": a.gate, "roi_job": a.roi_job, "roi": a.roi}), file=sys.stderr)
 
 
 def cmd_selftest(_):
@@ -156,7 +159,9 @@ def main():
     s.add_argument("--dets", required=True, help="dets.npy de track-studio")
     s.add_argument("--conf", type=float, default=0.25, help="umbral de confianza (ByteTrack inicia tracks a 0,25)")
     s.add_argument("--gate", type=float, default=40, help="px máximos entre frames (p99,9 medido: 48)")
-    s.add_argument("--roi-job", type=int, help="aplica la ROI sellada en este job de track-studio")
+    roi = s.add_mutually_exclusive_group()
+    roi.add_argument("--roi-job", type=int, help="aplica la ROI sellada en este job de track-studio")
+    roi.add_argument("--roi", help="aplica la ROI de un fichero (configs/cameras/roi_*.json)")
     s.add_argument("--api", default="http://track.torre")
     s.add_argument("--door", help="JSON de intervalos de puerta abierta (frames del video)")
     sub.add_parser("selftest")
