@@ -276,8 +276,15 @@ def cmd_publish(a):
         roi = json.loads(body)
 
     seqs = {}
+    starts = getattr(a, "starts", None) or {}
     for seq, gt in find_sequences(a.gt).items():
         info = seqinfo(gt)
+        if starts:
+            # job que no es el video entero (un collage): quien llama dice en qué frame del job
+            # empieza cada clip; los demás clips no están en él
+            if seq in starts:
+                seqs[seq] = (gt, starts[seq], int(info["seqlength"]))
+            continue
         if seq == video and "seqlength" in info:
             # job de una apertura (videos_apertura.py): su MOT ya es el clip, frames desde 1
             seqs[seq] = (gt, 1, int(info["seqlength"]))
