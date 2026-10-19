@@ -278,6 +278,10 @@ def cmd_publish(a):
     seqs = {}
     for seq, gt in find_sequences(a.gt).items():
         info = seqinfo(gt)
+        if seq == video and "seqlength" in info:
+            # job de una apertura (videos_apertura.py): su MOT ya es el clip, frames desde 1
+            seqs[seq] = (gt, 1, int(info["seqlength"]))
+            continue
         if info.get("source") != video:
             print(f"  {seq}: es de '{info.get('source', '?')}', no de {video} -> se salta")
             continue
