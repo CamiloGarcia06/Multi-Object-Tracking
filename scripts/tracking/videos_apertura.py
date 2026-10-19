@@ -28,6 +28,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 # los 3 que compara la tesis (decisión de Camilo, 18-10), con su nombre en el video
 TRACKERS = {"bytetrack_27": "ByteTrack (#27)", "botsort_osnet": "BoT-SORT + OSNet",
             "deepocsort_osnet_iou020": "Deep OC-SORT IoU 0,2"}
+TRAIL_LENGTH = 30   # centros que dibuja la estela, los mismos que el render de track-studio
 
 
 def seqinfo(path):
@@ -81,7 +82,7 @@ def cmd_render(a):
         frames_dir = pathlib.Path(a.frames_root) / clip / "frames"
         polygon = np.array(meta["roi"]["polygon"], dtype=np.int32)
         for tracker, label in TRACKERS.items():
-            boxes = {}
+            boxes, trails = {}, {}
             for line in (meta_path.parent / f"{tracker}.txt").read_text().splitlines():
                 if line.strip():
                     p = line.split(",")
@@ -100,6 +101,11 @@ def cmd_render(a):
                 cv2.polylines(im, [polygon], True, (255, 255, 255), 1, cv2.LINE_AA)
                 for tid, x, y, bw, bh in boxes.get(i, []):
                     c = color(tid)
+                    trail = trails.setdefault(tid, [])
+                    trail.append((int(x + bw / 2), int(y + bh / 2)))
+                    del trail[:-TRAIL_LENGTH]
+                    if len(trail) > 1:
+                        cv2.polylines(im, [np.array(trail, dtype=np.int32)], False, c, 2, cv2.LINE_AA)
                     cv2.rectangle(im, (int(x), int(y)), (int(x + bw), int(y + bh)), c, 2)
                     cv2.putText(im, str(tid), (int(x), max(12, int(y) - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, c, 1,
                                 cv2.LINE_AA)

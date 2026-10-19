@@ -35,6 +35,7 @@ TOL = 10         # = --tol de eval_flow.py
 TITULO = 30      # frames del cartel de cada apertura
 FINAL = 120      # frames del cartel final
 VIVO = 30        # frames que se ve la marca de un evento
+TRAIL_LENGTH = 30   # centros que dibuja la estela, los mismos que el render de track-studio
 
 # video etiquetado -> (corrida en runs/, cámara, ROI, fichero del video en la torre relativo a --videos)
 VIDEOS = {
@@ -180,6 +181,7 @@ def cmd_render(a):
                       ("verde = sube   naranja = baja", 0.5, GREY)], TITULO)
                 stop_evs = [(f, t, k) for f, t, k in evs if s["lo"] - MARGEN <= f <= s["hi"] + MARGEN]
                 cap.set(cv2.CAP_PROP_POS_FRAMES, s["seg_lo"] - 1)
+                trails = {}   # por apertura: la estela no cruza el corte entre tramos
                 for f in range(s["seg_lo"], s["seg_hi"] + 1):
                     ok, im = cap.read()
                     if not ok:
@@ -191,6 +193,11 @@ def cmd_render(a):
                     here = {}
                     for tid, x, y, bw, bh in boxes.get(c, []):
                         col = tid_color(tid)
+                        trail = trails.setdefault(tid, [])
+                        trail.append((int(x + bw / 2), int(y + bh / 2)))
+                        del trail[:-TRAIL_LENGTH]
+                        if len(trail) > 1:
+                            cv2.polylines(im, [np.array(trail, dtype=np.int32)], False, col, 2, cv2.LINE_AA)
                         cv2.rectangle(im, (int(x), int(y)), (int(x + bw), int(y + bh)), col, 2)
                         text(im, tid, (int(x), max(34, int(y) - 4)), 0.45, col)
                         here[tid] = (int(x), int(y))
