@@ -14,8 +14,13 @@ contra los clips de su video, así que las tablas de la web salen de los mismos 
 No repite: si ya hay un job con el mismo sha256 en su procedencia, lo reutiliza (y vuelve a publicar
 su evaluación, que sustituye a la anterior).
 
+Con `--videos DIR` sube en cambio los videos por apertura de `videos_apertura.py` (Tesis 27): un job
+por clip y tracker, con el MOT recortado a la apertura y a la ROI y su render. No se evalúan: son
+para verlos (la evaluación es la del video entero).
+
   TRACK_STUDIO_TOKEN=... uv run scripts/tracking/importar_studio.py --runs data/flow_eval/runs \\
       --gt data/tracking_golden [--api http://track.torre] [--dry-run]
+  TRACK_STUDIO_TOKEN=... uv run scripts/tracking/importar_studio.py --videos data/videos_apertura
 """
 import argparse, hashlib, json, os, pathlib, subprocess, sys, urllib.error, urllib.request, uuid
 
@@ -32,19 +37,22 @@ SOURCE = {short: video for video, short in C.VIDEOS.items()}   # 02 -> videoTM_0
 DETECTOR = {"conf": "0.1", "nms_iou": "0.6", "imgsz": "640"}   # det_video.py: campeón, conf 0,10, NMS post-hoc 0,6
 
 
-def multipart(fields, file_field, file_name, data):
+def multipart(fields, file_field, file_name, data, render=None):
     boundary = uuid.uuid4().hex
     parts = []
     for k, v in fields.items():
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
     parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; filename="{file_name}"\r\n'
                  f'Content-Type: text/plain\r\n\r\n'.encode() + data + b"\r\n")
+    if render is not None:   # (nombre, bytes) del mp4
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="render"; filename="{render[0]}"\r\n'
+                     f'Content-Type: video/mp4\r\n\r\n'.encode() + render[1] + b"\r\n")
     parts.append(f"--{boundary}--\r\n".encode())
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
-def post_import(api, token, fields, name, data):
-    body, ctype = multipart(fields, "tracks", name, data)
+def post_import(api, token, fields, name, data, render=None):
+    body, ctype = multipart(fields, "tracks", name, data, render)
     req = urllib.request.Request(f"{api}/api/jobs/import", method="POST", data=body)
     req.add_header("Content-Type", ctype)
     req.add_header("Authorization", f"Bearer {token}")
@@ -63,8 +71,9 @@ def roi_json(short):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--runs", required=True)
-    p.add_argument("--gt", required=True)
+    p.add_argument("--runs")
+    p.add_argument("--gt")
+    p.add_argument("--videos", help="carpeta de videos_apertura.py: sube los videos por apertura")
     p.add_argument("--api", default="http://track.torre")
     p.add_argument("--token", help="por defecto, TRACK_STUDIO_TOKEN")
     p.add_argument("--dry-run", action="store_true", help="dice qué haría, sin importar ni publicar")
@@ -85,6 +94,10 @@ def main():
         if "sha256=" in origin:
             known[origin.rsplit("sha256=", 1)[1]] = job["id"]
 
+    if a.videos:
+        return import_videos(a, api, token, sha, known)
+    if not (a.runs and a.gt):
+        sys.exit("hacen falta --runs y --gt (o --videos)")
     runs = pathlib.Path(a.runs)
     jobs = []
     for tracker in sorted(d for d in runs.iterdir() if d.is_dir()):
@@ -118,6 +131,31 @@ def main():
     for job in jobs:
         print(f"== job #{job}")
         ET.cmd_publish(argparse.Namespace(api=api, token=token, job=job, gt=a.gt, dry_run=a.dry_run))
+
+
+def import_videos(a, api, token, sha, known):
+    for meta_path in sorted(pathlib.Path(a.videos).glob("*/meta.json")):
+        meta = json.loads(meta_path.read_text())
+        clip, end = meta["clip"], meta["start"] + meta["frames"] - 1
+        for tracker, run in meta["runs"].items():
+            data = (meta_path.parent / f"{tracker}.txt").read_bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            if digest in known:
+                print(f"  {clip}/{tracker}: ya es el job #{known[digest]}")
+                continue
+            origin = (f"tesis {sha}: {clip} = {meta['source']} {meta['start']}–{end}, {run['run']} "
+                      f"(sha256 {run['run_sha256'][:12]}) recortado a la apertura y a la ROI sha256={digest}")
+            fields = {"source_name": f"{clip}.mp4", "tracker": f"trackers/{YAML[tracker]}",
+                      "frames": str(meta["frames"]), "imported_from": origin,
+                      "roi": json.dumps(meta["roi"]), **DETECTOR}
+            render = meta_path.parent / f"{tracker}.mp4"
+            if a.dry_run:
+                print(f"  {clip}/{tracker}: se importaría con {render.name} ({run['tracks']} tracks)")
+                continue
+            status, job = post_import(api, token, fields, f"{tracker}.txt", data, (render.name, render.read_bytes()))
+            if status != 201:
+                sys.exit(f"{clip}/{tracker}: track-studio respondió HTTP {status} {str(job)[:300]}")
+            print(f"  {clip}/{tracker}: job #{job['id']} ({job['tracks']} tracks) -> {api}/jobs/{job['id']}")
 
 
 if __name__ == "__main__":
